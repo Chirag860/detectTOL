@@ -137,4 +137,19 @@ Not started. Blocked on three GD&T questions that only the maintainer or a GD&T 
 
 ## CI for this phase
 
-CI_PHASE3_RESULT
+Commit `55148ab` (Phase 3 code, tests and docs), GitHub Actions, queried from the GitHub API after the run completed:
+
+```
+sha=55148ab status=completed conclusion=success
+core-pip (ubuntu-latest, 3.11): completed/success
+core-pip (ubuntu-latest, 3.12): completed/success
+core-pip (windows-latest, 3.11): completed/success
+core-pip (windows-latest, 3.12): completed/success
+core-pip (macos-latest, 3.11): completed/success
+core-pip (macos-latest, 3.12): completed/success
+conda (ubuntu-latest): completed/success
+conda (windows-latest): completed/success
+conda (macos-latest): completed/success
+```
+
+This also settles the open risk above: the bit-identical match between the loop engine and the 1D engine holds on Linux and macOS, not only on Windows.
