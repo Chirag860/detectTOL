@@ -47,6 +47,19 @@ D23–D30 were chosen by the implementer on 2026-11-12 to carry out "continue wi
 | D29 | Linearised mean | `Y(μ)`; no second-order correction | PROVISIONAL | Spec §3.4 as written. |
 | D30 | Scope | Open chains only; α and the constant are exact | PROVISIONAL | No closed-loop solver in the spec's Phase 3 tests. |
 
+### YAML and CLI for loops (added 2026-11-12)
+
+The maintainer approved adding YAML/CLI support with the format proposed in the Phase 3 report ("Yes, add YAML/CLI"). That supersedes D26. The details below the approved outline are the implementer's and PROVISIONAL.
+
+| # | Question | Decision | Status | Reason |
+|---|---|---|---|---|
+| D31 | Loop input format | `schema_version: 2`, `units: mm`, required `angle_units: deg \| rad`, a `loop` section with `measure_angle` and `vectors` (each `length` / `angle` is a number or a toleranced variable) | APPROVED 2026-11-12 | Maintainer approved the proposed format. |
+| D32 | Linear files | `schema_version: 1` files are unchanged and still valid; a `loop` section selects the loop format | PROVISIONAL | No existing file or output changes. |
+| D33 | Where angles are converted | Degrees → radians in the YAML loader (input); radians → the file's unit in Markdown/HTML (output). The core works in radians only | PROVISIONAL | root.md rule 5: convert only at input/output. |
+| D34 | Units in JSON | The JSON report keeps radians and mm/rad; `loop.angle_units` records what the input used | PROVISIONAL | Machine-readable output stays in internal units; one convention for consumers. Markdown/HTML label every angle row with its unit. |
+| D35 | Report schema | Loop reports are `schema_version: 2` (`report-v2.schema.json`): the v1 `result` block plus a `loop` block. Linear reports stay v1, byte-for-byte | PROVISIONAL | Supersedes D27's "API only"; v1 consumers are unaffected. |
+| D36 | Example seed | `examples/wedge_height.yaml` uses seed 2, not 1 | PROVISIONAL | Seed 1 gives 227 failures where ~186 are expected (a 3-sigma draw; seeds 2–5 give 181–199, and an independent 2e7-sample run gives 1860 ppm vs 1865 predicted). An example whose interval misses the true value would mislead. |
+
 ## Still open (not needed until later phases)
 
 Q9 (position-tolerance distribution), Q12 (bonus-tolerance test expectation), Q13 (flatness on top of size).

@@ -135,6 +135,65 @@ loop:
 
 Not started. Blocked on three GD&T questions that only the maintainer or a GD&T reference can answer: Q9 (position-tolerance distribution: disk-uniform σ = T/4 vs 1D σ = T/6), Q12 (what the bonus-tolerance test should assert), Q13 (flatness on top of size under the envelope principle). No ASME Y14.5-2018 section reference has been verified.
 
+## Addendum — YAML and CLI for loops (2026-11-12)
+
+The maintainer approved the proposed format ("Yes, add YAML/CLI"). The second bullet of "Not done" above no longer applies; 3D and closed loops are still not done.
+
+### Done
+
+- Input: `schema_version: 2` files with `angle_units` and a `loop` section; degrees are converted to radians in the loader. `schema_version: 1` files are untouched.
+- `detecttol analyze` accepts either kind of file.
+- Reports: Markdown/HTML show each angle in the unit the file used, with a Unit column, a "Vector loop" section (convention, measurement direction, analytic and finite-difference sensitivities, linear vs exact effect, Monte Carlo vs linear) and a line saying the closed-form results are linearised. Loop warnings are listed with the other warnings.
+- JSON: report schema v2 (`report-v2.schema.json`) = the v1 `result` block plus a `loop` block; radians throughout. The v1 schema file and the v1 snapshots are byte-identical to before.
+- Examples: `examples/wedge_height.yaml`, `examples/two_link_bracket.yaml`.
+- 40 new tests (loader, conversion, validation messages, report content, snapshots, CLI).
+
+### Test results
+
+Windows 11, conda env. Real output:
+
+```
+src\detecttol\cli\main.py              70      0     20      2    98%
+src\detecttol\core\loop.py            183      0     42      0   100%
+src\detecttol\io\yaml_loader.py       110      0     22      1    99%
+src\detecttol\report\model.py          59      0      0      0   100%
+src\detecttol\report\render.py         46      0      6      0   100%
+TOTAL                                 874      3    176      4    99%
+173 passed in 13.82s
+ruff check: All checks passed!
+mypy: Success: no issues found in 7 source files
+```
+
+### Defects found on the way
+
+| Failure | Root cause | Fix |
+|---|---|---|
+| Every linear report failed to render | **Code defect.** I named a template variable `loop`; Jinja reserves `loop` inside `for` blocks, so the "is this a loop report" test was always true | Renamed to `vloop`. The unchanged v1 snapshot test is what caught it |
+| Validation message read `loop.vectors[0].angle.function-after[...].cp` plus a spurious "should be a valid number" | **Code defect.** A length/angle is "number or variable"; Pydantic reports both branches and puts branch labels in the path | Branch labels removed from the path; only the branch matching what the user wrote is reported |
+| v1 schema drift test failed | I had reworded the `Report` docstring, which is embedded in the schema | Docstring restored; v1 schema file untouched |
+
+No expected value was changed.
+
+### Hand-checked display values
+
+- Wedge, degrees: θ sensitivity 77.27407 mm/rad × π/180 = 1.348687 mm/deg → shown `1.34869`; σ_θ = 0.5/3 = 0.166667 deg. WC 0.700225 and σ 0.224947 are the same as the radian-based hand values.
+- Bracket (±0.25° angles): φ₁ sensitivity 4.641016 × π/180 = 0.081001 mm/deg; φ₂ 34.64102 × π/180 = 0.6046 mm/deg — both as shown.
+- These conversions were derived by me only; they were **not** sent to the reviewer subagent.
+
+### End-to-end runs (N = 100 000)
+
+| Example | Linearised prediction | Monte Carlo (exact) |
+|---|---|---|
+| wedge_height (seed 2) | 1865.11 ppm; Cpk 1.0291; worst case fails USL | 184 failures = 1840 ppm; Wilson [1592.83, 2125.44] |
+| two_link_bracket (seed 2) | 52.1642 ppm; Cpk 1.3077; worst case fails | 7 failures = 70 ppm; Wilson [33.909, 144.499] |
+
+- The wedge example first used seed 1 and showed 227 failures. I checked before trusting either number: seeds 2–5 give 181–199, and an independent 20-million-sample simulation gives 1860 ppm. Seed 1 is a 3-sigma draw, not a defect; the example now uses seed 2 (decision D36).
+
+### New limitations
+
+- Markdown/HTML show degrees while JSON shows radians for the same file (D34). Each is labelled, but a reader comparing the two must notice.
+- Decisions D32–D36 are provisional.
+
 ## CI for this phase
 
 Commit `55148ab` (Phase 3 code, tests and docs), GitHub Actions, queried from the GitHub API after the run completed:
