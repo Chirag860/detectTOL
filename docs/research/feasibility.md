@@ -6,6 +6,14 @@ Phase R, 2026-11-12. Labels [S]/[D]/[I]/[K] as in `domain-notes.md`.
 
 **Status: NOT VERIFIED BY EXECUTION.** No throwaway script was run. This machine has only CPython 3.14 from python.org, no conda/mamba/micromamba, and pythonocc-core is distributed through conda-forge, not pip. Installing a conda distribution is a download-and-install I did not do without the maintainer's go-ahead (question Q1 in the phase report).
 
+**Update 2026-11-12 (after Miniforge was installed) — binding check executed, still no real file read.**
+Environment: Windows 11, conda env from `environment.yml`, Python 3.12.16, pythonocc-core 8.0.1.2. Result of introspecting the bindings:
+
+- `STEPCAFControl_Reader.SetGDTMode(True)` works; `XCAFDoc_DocumentTool.DimTolTool(...)` returns a tool; `GetDimensionLabels`, `GetGeomToleranceLabels`, `GetDatumLabels`, `GetRefShapeLabel` exist.
+- `XCAFDoc_Dimension` and `XCAFDoc_Datum` expose `GetObject` / `SetObject`.
+- **`XCAFDoc_GeomTolerance` exposes no public methods at all** (no `GetObject`). If that holds on a real file, geometric tolerances (flatness, position, …) cannot be read through this class in this build, and Phase 5 needs another route. This is a red flag, not yet a conclusion: no AP242 file has been read.
+- Importing `OCC` only works when the conda env is properly activated (its `Library\bin` on PATH). Calling the env's `python.exe` directly crashed matplotlib/numpy with a Windows delay-load error (0xc06d007f). Use `conda activate` or `conda run`.
+
 What the documentation and trackers say:
 
 - conda-forge `pythonocc-core`: latest **8.0.1.2**; version history 7.4.0 … 7.9.3, 8.0.1, 8.0.1.1, 8.0.1.2; platform map lists win-64, linux-64, osx-64, osx-arm64, linux-aarch64; license LGPL-3.0-or-later. [S1] Which Python versions (3.11–3.14) have builds: not visible in what I read — UNSURE.
