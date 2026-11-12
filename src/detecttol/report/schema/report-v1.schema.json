@@ -1,0 +1,620 @@
+{
+  "$defs": {
+    "AnalysisWarning": {
+      "additionalProperties": false,
+      "description": "A non-fatal condition the engineer must know about.",
+      "properties": {
+        "code": {
+          "enum": [
+            "WORST_CASE_FAILS_SPEC",
+            "RSS_EXCEEDS_WORST_CASE",
+            "MODIFIED_RSS_EXCEEDS_WORST_CASE",
+            "NON_NORMAL_INPUT",
+            "ZERO_VARIATION",
+            "MC_NOT_CONVERGED",
+            "MC_ZERO_FAILURES"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "AnalysisWarning",
+      "type": "object"
+    },
+    "ContributorSummary": {
+      "additionalProperties": false,
+      "description": "Derived per-contributor quantities (spec Section 3.1).\n\n``wc_contribution_pct`` / ``rss_contribution_pct`` are ``None`` when the\nstack has no variation at all (every half-range is zero).",
+      "properties": {
+        "cp": {
+          "title": "Cp",
+          "type": "number"
+        },
+        "distribution": {
+          "title": "Distribution",
+          "type": "string"
+        },
+        "half_range": {
+          "title": "Half Range",
+          "type": "number"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "lower_tol": {
+          "title": "Lower Tol",
+          "type": "number"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "nominal": {
+          "title": "Nominal",
+          "type": "number"
+        },
+        "rss_contribution_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rss Contribution Pct"
+        },
+        "sensitivity": {
+          "title": "Sensitivity",
+          "type": "number"
+        },
+        "sigma": {
+          "title": "Sigma",
+          "type": "number"
+        },
+        "upper_tol": {
+          "title": "Upper Tol",
+          "type": "number"
+        },
+        "wc_contribution_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wc Contribution Pct"
+        }
+      },
+      "required": [
+        "id",
+        "nominal",
+        "upper_tol",
+        "lower_tol",
+        "sensitivity",
+        "distribution",
+        "cp",
+        "mean",
+        "half_range",
+        "sigma",
+        "wc_contribution_pct",
+        "rss_contribution_pct"
+      ],
+      "title": "ContributorSummary",
+      "type": "object"
+    },
+    "Histogram": {
+      "additionalProperties": false,
+      "description": "Equal-width histogram of the Monte Carlo sample of Y.\n\n``edges`` has ``len(counts) + 1`` entries [mm].",
+      "properties": {
+        "counts": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Counts",
+          "type": "array"
+        },
+        "edges": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Edges",
+          "type": "array"
+        }
+      },
+      "required": [
+        "edges",
+        "counts"
+      ],
+      "title": "Histogram",
+      "type": "object"
+    },
+    "ModifiedRssResult": {
+      "additionalProperties": false,
+      "description": "Bender modified RSS: half_range = k * sqrt(sum (a_i t_i)^2) [mm].",
+      "properties": {
+        "half_range": {
+          "title": "Half Range",
+          "type": "number"
+        },
+        "k": {
+          "title": "K",
+          "type": "number"
+        },
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "k",
+        "half_range",
+        "lower",
+        "upper"
+      ],
+      "title": "ModifiedRssResult",
+      "type": "object"
+    },
+    "MonteCarloResult": {
+      "additionalProperties": false,
+      "description": "Monte Carlo result.\n\nAttributes:\n    n, seed: sample size and RNG seed used.\n    mean, std, min, max: sample statistics of Y [mm]; ``std`` uses ddof=1.\n    n_fail: number of samples outside the spec (Y < LSL or Y > USL).\n    fraction_fail / fraction_fail_ppm: n_fail / n.\n    wilson_lower / wilson_upper: Wilson two-sided 95 % interval on the fraction.\n    zero_failure_upper_bound: exact one-sided 95 % upper bound\n        ``1 - 0.05**(1/n)`` (about 3/n); only set when ``n_fail == 0``.\n    std_half: std of the first n//2 samples [mm].\n    convergence_rel_diff: ``|std_half - std| / std`` (``None`` if std == 0).\n    converged: ``convergence_rel_diff <= 0.01`` (True if std == 0).",
+      "properties": {
+        "converged": {
+          "title": "Converged",
+          "type": "boolean"
+        },
+        "convergence_rel_diff": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Convergence Rel Diff"
+        },
+        "fraction_fail": {
+          "title": "Fraction Fail",
+          "type": "number"
+        },
+        "fraction_fail_ppm": {
+          "title": "Fraction Fail Ppm",
+          "type": "number"
+        },
+        "histogram": {
+          "$ref": "#/$defs/Histogram"
+        },
+        "max": {
+          "title": "Max",
+          "type": "number"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "min": {
+          "title": "Min",
+          "type": "number"
+        },
+        "n": {
+          "title": "N",
+          "type": "integer"
+        },
+        "n_fail": {
+          "title": "N Fail",
+          "type": "integer"
+        },
+        "percentiles": {
+          "$ref": "#/$defs/Percentiles"
+        },
+        "seed": {
+          "title": "Seed",
+          "type": "integer"
+        },
+        "std": {
+          "title": "Std",
+          "type": "number"
+        },
+        "std_half": {
+          "title": "Std Half",
+          "type": "number"
+        },
+        "wilson_lower": {
+          "title": "Wilson Lower",
+          "type": "number"
+        },
+        "wilson_upper": {
+          "title": "Wilson Upper",
+          "type": "number"
+        },
+        "zero_failure_upper_bound": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Zero Failure Upper Bound"
+        }
+      },
+      "required": [
+        "n",
+        "seed",
+        "mean",
+        "std",
+        "min",
+        "max",
+        "percentiles",
+        "n_fail",
+        "fraction_fail",
+        "fraction_fail_ppm",
+        "wilson_lower",
+        "wilson_upper",
+        "zero_failure_upper_bound",
+        "std_half",
+        "convergence_rel_diff",
+        "converged",
+        "histogram"
+      ],
+      "title": "MonteCarloResult",
+      "type": "object"
+    },
+    "Percentiles": {
+      "additionalProperties": false,
+      "description": "Monte Carlo percentiles of Y [mm] (numpy linear interpolation).",
+      "properties": {
+        "p0_135": {
+          "title": "P0 135",
+          "type": "number"
+        },
+        "p2_5": {
+          "title": "P2 5",
+          "type": "number"
+        },
+        "p50": {
+          "title": "P50",
+          "type": "number"
+        },
+        "p97_5": {
+          "title": "P97 5",
+          "type": "number"
+        },
+        "p99_865": {
+          "title": "P99 865",
+          "type": "number"
+        }
+      },
+      "required": [
+        "p0_135",
+        "p2_5",
+        "p50",
+        "p97_5",
+        "p99_865"
+      ],
+      "title": "Percentiles",
+      "type": "object"
+    },
+    "RssResult": {
+      "additionalProperties": false,
+      "description": "Statistical (RSS) result [mm].\n\n``p_fail``, ``p_fail_ppm``, ``cpl``, ``cpu`` and ``cpk`` assume a normal Y and\nare ``None`` when ``sigma == 0`` (see ``meets_spec_at_mean`` instead).\n``cpl``/``cpu`` are ``None`` when the corresponding limit is absent.",
+      "properties": {
+        "cpk": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cpk"
+        },
+        "cpl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cpl"
+        },
+        "cpu": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cpu"
+        },
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "meets_spec_at_mean": {
+          "title": "Meets Spec At Mean",
+          "type": "boolean"
+        },
+        "p_fail": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P Fail"
+        },
+        "p_fail_ppm": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "P Fail Ppm"
+        },
+        "sigma": {
+          "title": "Sigma",
+          "type": "number"
+        },
+        "three_sigma": {
+          "title": "Three Sigma",
+          "type": "number"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "sigma",
+        "three_sigma",
+        "lower",
+        "upper",
+        "p_fail",
+        "p_fail_ppm",
+        "cpl",
+        "cpu",
+        "cpk",
+        "meets_spec_at_mean"
+      ],
+      "title": "RssResult",
+      "type": "object"
+    },
+    "StackResult": {
+      "additionalProperties": false,
+      "description": "Full analysis result for one stack.",
+      "properties": {
+        "constant": {
+          "title": "Constant",
+          "type": "number"
+        },
+        "contributors": {
+          "items": {
+            "$ref": "#/$defs/ContributorSummary"
+          },
+          "title": "Contributors",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "lsl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lsl"
+        },
+        "mean": {
+          "title": "Mean",
+          "type": "number"
+        },
+        "modified_rss": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModifiedRssResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "monte_carlo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MonteCarloResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "rss": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RssResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "units": {
+          "title": "Units",
+          "type": "string"
+        },
+        "usl": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Usl"
+        },
+        "warnings": {
+          "items": {
+            "$ref": "#/$defs/AnalysisWarning"
+          },
+          "title": "Warnings",
+          "type": "array"
+        },
+        "worst_case": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorstCaseResult"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "units",
+        "description",
+        "lsl",
+        "usl",
+        "constant",
+        "mean",
+        "contributors",
+        "worst_case",
+        "rss",
+        "modified_rss",
+        "monte_carlo",
+        "warnings"
+      ],
+      "title": "StackResult",
+      "type": "object"
+    },
+    "ToolInfo": {
+      "additionalProperties": false,
+      "description": "Which tool produced the report.",
+      "properties": {
+        "name": {
+          "const": "detecttol",
+          "default": "detecttol",
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "title": "ToolInfo",
+      "type": "object"
+    },
+    "WorstCaseResult": {
+      "additionalProperties": false,
+      "description": "Worst case: Y in [mean - half_range, mean + half_range] [mm].",
+      "properties": {
+        "half_range": {
+          "title": "Half Range",
+          "type": "number"
+        },
+        "lower": {
+          "title": "Lower",
+          "type": "number"
+        },
+        "meets_spec": {
+          "title": "Meets Spec",
+          "type": "boolean"
+        },
+        "upper": {
+          "title": "Upper",
+          "type": "number"
+        }
+      },
+      "required": [
+        "half_range",
+        "lower",
+        "upper",
+        "meets_spec"
+      ],
+      "title": "WorstCaseResult",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A complete analysis report.\n\nAttributes:\n    schema_version: version of this JSON layout (currently 1).\n    tool: tool name and version.\n    generated_at: UTC timestamp, ISO 8601 (``YYYY-MM-DDTHH:MM:SSZ``).\n    input_file: path of the analysed file as given by the user, or ``None``.\n    result: the analysis result; all lengths in millimetres.",
+  "properties": {
+    "generated_at": {
+      "title": "Generated At",
+      "type": "string"
+    },
+    "input_file": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Input File"
+    },
+    "result": {
+      "$ref": "#/$defs/StackResult"
+    },
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "tool": {
+      "$ref": "#/$defs/ToolInfo"
+    }
+  },
+  "required": [
+    "tool",
+    "generated_at",
+    "input_file",
+    "result"
+  ],
+  "title": "detecttol report v1",
+  "type": "object"
+}
