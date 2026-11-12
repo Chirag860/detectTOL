@@ -28,7 +28,7 @@ from detecttol.report import (
     utc_timestamp,
 )
 from detecttol.report.render import fmt, sorted_contributors
-from tests.conftest import EXAMPLES, contributor, make_stack
+from tests.conftest import EXAMPLES, LINEAR_EXAMPLES, contributor, make_stack
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
 FIXED_TIME = "2026-01-01T00:00:00Z"
@@ -82,7 +82,7 @@ def test_committed_schema_matches_the_model() -> None:
     assert load_committed_schema() == generate_json_schema()
 
 
-@pytest.mark.parametrize("example", sorted(p.name for p in EXAMPLES.glob("*.yaml")))
+@pytest.mark.parametrize("example", [p.name for p in LINEAR_EXAMPLES])
 def test_json_output_validates_against_committed_schema(example: str) -> None:
     schema = load_committed_schema()
     jsonschema.Draft202012Validator.check_schema(schema)

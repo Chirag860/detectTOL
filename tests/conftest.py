@@ -11,6 +11,10 @@ from detecttol import Stack
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
+#: Vector-loop examples (schema_version 2); every other example is a linear stack.
+LOOP_EXAMPLE_NAMES = ("two_link_bracket.yaml", "wedge_height.yaml")
+LINEAR_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if p.name not in LOOP_EXAMPLE_NAMES)
+LOOP_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if p.name in LOOP_EXAMPLE_NAMES)
 
 
 def contributor(

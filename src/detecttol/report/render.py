@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import base64
+import math
+from typing import Any
 
 from jinja2 import Environment, StrictUndefined, select_autoescape
 
 from detecttol.core.results import ContributorSummary, StackResult
-from detecttol.report.model import Report
+from detecttol.report.model import AnyReport, LoopReport
 
 _DASH = "n/a"
 
@@ -36,8 +38,8 @@ def sorted_contributors(result: StackResult) -> list[ContributorSummary]:
     )
 
 
-def to_json(report: Report) -> str:
-    """Report as pretty-printed JSON (follows ``report-v1.schema.json``)."""
+def to_json(report: AnyReport) -> str:
+    """Report as pretty-printed JSON (follows ``report-v1.schema.json`` or ``report-v2.schema.json``)."""
     return report.model_dump_json(indent=2) + "\n"
 
 
@@ -55,15 +57,16 @@ _MD_TEMPLATE = """\
 - Constant term: {{ fmt(r.constant) }}
 - Input file: {{ report.input_file or 'n/a' }}
 
-| Contributor | Nominal | Upper tol | Lower tol | Sensitivity | Distribution | Cp | Mean | Half-range t | Sigma |
-|---|---|---|---|---|---|---|---|---|---|
-{% for c in r.contributors -%}
-| {{ c.id }} | {{ fmt(c.nominal) }} | {{ fmt(c.upper_tol) }} | {{ fmt(c.lower_tol) }} | {{ fmt(c.sensitivity) }} | {{ c.distribution }} | {{ fmt(c.cp) }} | {{ fmt(c.mean) }} | {{ fmt(c.half_range) }} | {{ fmt(c.sigma) }} |
+| Contributor |{% if vloop %} Unit |{% endif %} Nominal | Upper tol | Lower tol | Sensitivity | Distribution | Cp | Mean | Half-range t | Sigma |
+|---|{% if vloop %}---|{% endif %}---|---|---|---|---|---|---|---|---|
+{% for c in rows -%}
+| {{ c.id }} |{% if vloop %} {{ c.unit }} |{% endif %} {{ fmt(c.nominal) }} | {{ fmt(c.upper_tol) }} | {{ fmt(c.lower_tol) }} | {{ fmt(c.sensitivity) }} | {{ c.distribution }} | {{ fmt(c.cp) }} | {{ fmt(c.mean) }} | {{ fmt(c.half_range) }} | {{ fmt(c.sigma) }} |
 {% endfor %}
 ## Results
 
 - Mean of Y: {{ fmt(r.mean) }} {{ r.units }}
-{% if r.worst_case %}
+{% if vloop %}- Vector loop: worst case, RSS, predicted failure and Cpk below are LINEARISED about the means. Monte Carlo uses the exact geometry.
+{% endif %}{% if r.worst_case %}
 ### Worst case
 
 - Half-range: {{ fmt(r.worst_case.half_range) }}
@@ -102,7 +105,23 @@ _MD_TEMPLATE = """\
 - Convergence (std at N/2 vs N): {{ fmt(mc.std_half) }} vs {{ fmt(mc.std) }}, {{ 'converged' if mc.converged else 'NOT CONVERGED' }}
 {% if histogram_ref %}
 ![Monte Carlo histogram]({{ histogram_ref }})
-{% endif %}{% endif %}
+{% endif %}{% endif %}{% if vloop %}
+## Vector loop
+
+- Angle convention: relative (counter-clockwise from the previous vector; first vector from global +x)
+- Angles shown in: {{ vloop.angle_units }} (sensitivities of angles in mm/{{ vloop.angle_units }})
+- Measurement direction: {{ fmt(measure_angle_display) }} {{ vloop.angle_units }}
+{% if vloop.mc_std_rel_diff is not none -%}
+- Monte Carlo std vs linearised sigma: {{ fmt(100 * vloop.mc_std_rel_diff, 3) }} % (sampling error about {{ fmt(100 * vloop.mc_std_rel_se, 3) }} %)
+{% endif -%}
+{% if vloop.mc_mean_shift is not none -%}
+- Monte Carlo mean minus Y at the means: {{ fmt(vloop.mc_mean_shift) }} mm (standard error {{ fmt(vloop.mc_mean_se) }} mm)
+{% endif %}
+| Variable | Kind | Unit | Vector | Sensitivity (analytic) | Sensitivity (finite diff.) | Linear effect [mm] | Exact effect [mm] |
+|---|---|---|---|---|---|---|---|
+{% for v in loop_rows -%}
+| {{ v.id }} | {{ v.kind }} | {{ v.unit }} | {{ v.vector }} | {{ fmt(v.analytic) }} | {{ fmt(v.fd) }} | {{ fmt(v.linear_effect) }} | {{ fmt(v.exact_effect) }} |
+{% endfor %}{% endif %}
 ## Contributions (sorted, largest first)
 
 | Contributor | RSS % | Worst case % |
@@ -112,8 +131,8 @@ _MD_TEMPLATE = """\
 {% endfor %}
 ## Warnings
 
-{% if r.warnings -%}
-{% for w in r.warnings -%}
+{% if all_warnings -%}
+{% for w in all_warnings -%}
 - **{{ w.code }}**: {{ w.message }}
 {% endfor -%}
 {% else -%}
@@ -156,15 +175,16 @@ img { max-width: 100%; }
 <tr><th>Input file</th><td>{{ report.input_file or 'n/a' }}</td></tr>
 </table>
 <table>
-<tr><th>Contributor</th><th>Nominal</th><th>Upper tol</th><th>Lower tol</th><th>Sensitivity</th><th>Distribution</th><th>Cp</th><th>Mean</th><th>Half-range t</th><th>Sigma</th></tr>
-{% for c in r.contributors -%}
-<tr><td>{{ c.id }}</td><td>{{ fmt(c.nominal) }}</td><td>{{ fmt(c.upper_tol) }}</td><td>{{ fmt(c.lower_tol) }}</td><td>{{ fmt(c.sensitivity) }}</td><td>{{ c.distribution }}</td><td>{{ fmt(c.cp) }}</td><td>{{ fmt(c.mean) }}</td><td>{{ fmt(c.half_range) }}</td><td>{{ fmt(c.sigma) }}</td></tr>
+<tr><th>Contributor</th>{% if vloop %}<th>Unit</th>{% endif %}<th>Nominal</th><th>Upper tol</th><th>Lower tol</th><th>Sensitivity</th><th>Distribution</th><th>Cp</th><th>Mean</th><th>Half-range t</th><th>Sigma</th></tr>
+{% for c in rows -%}
+<tr><td>{{ c.id }}</td>{% if vloop %}<td>{{ c.unit }}</td>{% endif %}<td>{{ fmt(c.nominal) }}</td><td>{{ fmt(c.upper_tol) }}</td><td>{{ fmt(c.lower_tol) }}</td><td>{{ fmt(c.sensitivity) }}</td><td>{{ c.distribution }}</td><td>{{ fmt(c.cp) }}</td><td>{{ fmt(c.mean) }}</td><td>{{ fmt(c.half_range) }}</td><td>{{ fmt(c.sigma) }}</td></tr>
 {% endfor -%}
 </table>
 
 <h2>Results</h2>
 <p>Mean of Y: {{ fmt(r.mean) }} {{ r.units }}</p>
-{% if r.worst_case %}
+{% if vloop %}<p class="warn">Vector loop: worst case, RSS, predicted failure and Cpk below are <strong>linearised</strong> about the means. Monte Carlo uses the exact geometry.</p>
+{% endif %}{% if r.worst_case %}
 <h3>Worst case</h3>
 <table>
 <tr><th>Half-range</th><td>{{ fmt(r.worst_case.half_range) }}</td></tr>
@@ -211,7 +231,21 @@ img { max-width: 100%; }
 {% if histogram_b64 %}<img alt="Monte Carlo histogram of Y with LSL/USL lines" src="data:image/png;base64,{{ histogram_b64 }}">{% endif %}
 {% endif %}
 
-<h2>Contributions (sorted, largest first)</h2>
+{% if vloop %}<h2>Vector loop</h2>
+<table>
+<tr><th>Angle convention</th><td>relative (counter-clockwise from the previous vector; first vector from global +x)</td></tr>
+<tr><th>Angles shown in</th><td>{{ vloop.angle_units }} (sensitivities of angles in mm/{{ vloop.angle_units }})</td></tr>
+<tr><th>Measurement direction</th><td>{{ fmt(measure_angle_display) }} {{ vloop.angle_units }}</td></tr>
+{% if vloop.mc_std_rel_diff is not none %}<tr><th>Monte Carlo std vs linearised sigma</th><td>{{ fmt(100 * vloop.mc_std_rel_diff, 3) }} % (sampling error about {{ fmt(100 * vloop.mc_std_rel_se, 3) }} %)</td></tr>
+{% endif %}{% if vloop.mc_mean_shift is not none %}<tr><th>Monte Carlo mean minus Y at the means</th><td>{{ fmt(vloop.mc_mean_shift) }} mm (standard error {{ fmt(vloop.mc_mean_se) }} mm)</td></tr>
+{% endif %}</table>
+<table>
+<tr><th>Variable</th><th>Kind</th><th>Unit</th><th>Vector</th><th>Sensitivity (analytic)</th><th>Sensitivity (finite diff.)</th><th>Linear effect [mm]</th><th>Exact effect [mm]</th></tr>
+{% for v in loop_rows -%}
+<tr><td>{{ v.id }}</td><td>{{ v.kind }}</td><td>{{ v.unit }}</td><td>{{ v.vector }}</td><td>{{ fmt(v.analytic) }}</td><td>{{ fmt(v.fd) }}</td><td>{{ fmt(v.linear_effect) }}</td><td>{{ fmt(v.exact_effect) }}</td></tr>
+{% endfor -%}
+</table>
+{% endif %}<h2>Contributions (sorted, largest first)</h2>
 <table>
 <tr><th>Contributor</th><th>RSS %</th><th>Worst case %</th></tr>
 {% for c in contributors_sorted -%}
@@ -220,8 +254,8 @@ img { max-width: 100%; }
 </table>
 
 <h2>Warnings</h2>
-{% if r.warnings -%}
-{% for w in r.warnings -%}
+{% if all_warnings -%}
+{% for w in all_warnings -%}
 <div class="warn"><strong>{{ w.code }}</strong>: {{ w.message }}</div>
 {% endfor -%}
 {% else -%}
@@ -240,32 +274,82 @@ _html_env = Environment(
 )
 
 
-def to_markdown(report: Report, histogram_ref: str | None = None) -> str:
+def _context(report: AnyReport) -> dict[str, Any]:
+    """Template variables shared by the Markdown and HTML renderers.
+
+    For a vector loop, angle quantities are converted from radians to the unit
+    the input file used (output-side conversion): nominal, tolerances, mean,
+    half-range and sigma are multiplied by ``f`` and angle sensitivities divided
+    by ``f``, where ``f = 180/pi`` for degrees and 1 for radians.
+    """
+    r = report.result
+    all_warnings: list[Any] = list(r.warnings)
+    context: dict[str, Any] = {
+        "report": report,
+        "r": r,
+        "rows": r.contributors,
+        "contributors_sorted": sorted_contributors(r),
+        "vloop": None,
+        "loop_rows": [],
+        "measure_angle_display": None,
+        "fmt": fmt,
+        "fmt_pct": fmt_pct,
+    }
+    if isinstance(report, LoopReport):
+        loop = report.loop
+        f = 180.0 / math.pi if loop.angle_units == "deg" else 1.0
+        rows = []
+        loop_rows = []
+        for c, v in zip(r.contributors, loop.variables, strict=True):
+            k = f if v.kind == "angle" else 1.0
+            unit = loop.angle_units if v.kind == "angle" else "mm"
+            rows.append(
+                {
+                    "id": c.id,
+                    "unit": unit,
+                    "nominal": c.nominal * k,
+                    "upper_tol": c.upper_tol * k,
+                    "lower_tol": c.lower_tol * k,
+                    "sensitivity": c.sensitivity / k,
+                    "distribution": c.distribution,
+                    "cp": c.cp,
+                    "mean": c.mean * k,
+                    "half_range": c.half_range * k,
+                    "sigma": c.sigma * k,
+                }
+            )
+            loop_rows.append(
+                {
+                    "id": v.id,
+                    "kind": v.kind,
+                    "unit": unit,
+                    "vector": v.vector_index + 1,
+                    "analytic": v.sensitivity_analytic / k,
+                    "fd": v.sensitivity_fd / k,
+                    "linear_effect": v.linear_effect,
+                    "exact_effect": v.exact_effect,
+                }
+            )
+        all_warnings += list(loop.warnings)
+        context.update(
+            rows=rows, vloop=loop, loop_rows=loop_rows, measure_angle_display=loop.measure_angle * f
+        )
+    context["all_warnings"] = all_warnings
+    return context
+
+
+def to_markdown(report: AnyReport, histogram_ref: str | None = None) -> str:
     """Report as Markdown.
 
     Args:
-        report: the report document.
+        report: the report document (linear stack or vector loop).
         histogram_ref: relative path or URL of the histogram image to embed,
             or ``None`` to leave the image out.
     """
-    return _md_env.from_string(_MD_TEMPLATE).render(
-        report=report,
-        r=report.result,
-        contributors_sorted=sorted_contributors(report.result),
-        histogram_ref=histogram_ref,
-        fmt=fmt,
-        fmt_pct=fmt_pct,
-    )
+    return _md_env.from_string(_MD_TEMPLATE).render(histogram_ref=histogram_ref, **_context(report))
 
 
-def to_html(report: Report, histogram_png: bytes | None = None) -> str:
+def to_html(report: AnyReport, histogram_png: bytes | None = None) -> str:
     """Report as a self-contained HTML page (histogram embedded as base64 PNG)."""
     b64 = None if histogram_png is None else base64.b64encode(histogram_png).decode("ascii")
-    return _html_env.from_string(_HTML_TEMPLATE).render(
-        report=report,
-        r=report.result,
-        contributors_sorted=sorted_contributors(report.result),
-        histogram_b64=b64,
-        fmt=fmt,
-        fmt_pct=fmt_pct,
-    )
+    return _html_env.from_string(_HTML_TEMPLATE).render(histogram_b64=b64, **_context(report))

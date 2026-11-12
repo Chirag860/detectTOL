@@ -8,10 +8,10 @@ import pytest
 
 from detecttol import analyze
 from detecttol.io import StackInputError, load_stack
-from tests.conftest import EXAMPLES
+from tests.conftest import EXAMPLES, LINEAR_EXAMPLES
 
 
-@pytest.mark.parametrize("path", sorted(EXAMPLES.glob("*.yaml")), ids=lambda p: p.name)
+@pytest.mark.parametrize("path", LINEAR_EXAMPLES, ids=lambda p: p.name)
 def test_every_example_loads_and_analyses(path: Path) -> None:
     result = analyze(load_stack(path))
     assert result.contributors

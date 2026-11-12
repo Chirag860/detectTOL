@@ -2,7 +2,10 @@
 
 from detecttol.report.histogram import render_histogram_png
 from detecttol.report.model import (
+    AnyReport,
+    LoopReport,
     Report,
+    build_loop_report,
     build_report,
     generate_json_schema,
     load_committed_schema,
@@ -11,7 +14,10 @@ from detecttol.report.model import (
 from detecttol.report.render import to_html, to_json, to_markdown
 
 __all__ = [
+    "AnyReport",
+    "LoopReport",
     "Report",
+    "build_loop_report",
     "build_report",
     "generate_json_schema",
     "load_committed_schema",

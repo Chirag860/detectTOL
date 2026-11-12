@@ -14,8 +14,11 @@ import typer
 
 import detecttol
 from detecttol.core.analyze import analyze as run_analysis
-from detecttol.io import StackInputError, load_stack
+from detecttol.core.loop import analyze_loop
+from detecttol.io import LoopInput, StackInputError, load_input
 from detecttol.report import (
+    AnyReport,
+    build_loop_report,
     build_report,
     render_histogram_png,
     to_html,
@@ -78,27 +81,45 @@ def analyze(
         typer.Option("--out", "-o", help="Output directory. Without it the report goes to stdout."),
     ] = None,
 ) -> None:
-    """Analyse a tolerance stack and write a report.
+    """Analyse a tolerance stack or a 2D vector loop and write a report.
+
+    The file is a linear stack (schema_version 1, `contributors`) or a vector
+    loop (schema_version 2, `loop` and `angle_units`).
 
     With --out DIR the report is written to DIR/<name>.<format>; the Markdown
     format also writes DIR/<name>_histogram.png when Monte Carlo was run.
     Without --out the report is printed to stdout (Markdown then has no image).
     """
     try:
-        stack = load_stack(stack_file)
+        loaded = load_input(stack_file)
     except StackInputError as exc:
         for message in exc.errors:
             typer.echo(f"error: {message}", err=True)
         raise typer.Exit(EXIT_INPUT_ERROR) from exc
 
-    result = run_analysis(stack)
-    report = build_report(
-        result,
-        version=detecttol.__version__,
-        generated_at=_timestamp(),
-        input_file=stack_file.as_posix(),
-    )
-    base = _safe_name(stack.name)
+    report: AnyReport
+    if isinstance(loaded, LoopInput):
+        loop_result = analyze_loop(loaded.loop)
+        result = loop_result.result
+        report = build_loop_report(
+            loop_result,
+            measure_angle=loaded.loop.measure_angle,
+            angle_units=loaded.angle_units,
+            version=detecttol.__version__,
+            generated_at=_timestamp(),
+            input_file=stack_file.as_posix(),
+        )
+        name = loaded.loop.name
+    else:
+        result = run_analysis(loaded)
+        report = build_report(
+            result,
+            version=detecttol.__version__,
+            generated_at=_timestamp(),
+            input_file=stack_file.as_posix(),
+        )
+        name = loaded.name
+    base = _safe_name(name)
 
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,22 @@
+# Vector loop (schema_version 2): x-distance across a two-link bracket.
+# Link a: 60 +/-0.1 mm at 30 deg from +x.
+# Link b: 40 +/-0.1 mm at -90 deg RELATIVE to link a (so -60 deg absolute).
+# A change in phi1 rotates both links; a change in phi2 rotates only link b.
+schema_version: 2
+units: mm
+angle_units: deg
+name: two_link_bracket
+requirement:
+  description: x-distance from the start of link a to the end of link b
+  lsl: 71.7
+  usl: 72.2
+loop:
+  measure_angle: 0
+  vectors:
+    - length: {id: a, nominal: 60.0, upper_tol: 0.1, lower_tol: -0.1}
+      angle: {id: phi1, nominal: 30.0, upper_tol: 0.25, lower_tol: -0.25}
+    - length: {id: b, nominal: 40.0, upper_tol: 0.1, lower_tol: -0.1}
+      angle: {id: phi2, nominal: -90.0, upper_tol: 0.25, lower_tol: -0.25}
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 2}

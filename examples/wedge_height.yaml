@@ -1,0 +1,22 @@
+# Vector loop (schema_version 2): height of a wedge.
+# One vector (the incline): length 80 +/-0.1 mm at 15 +/-0.5 degrees from +x.
+# Measured along +y (90 deg), so Y = L * sin(theta).
+#
+# Angles are RELATIVE: each angle is measured counter-clockwise from the
+# previous vector's direction (the first one from the global +x axis).
+schema_version: 2
+units: mm
+angle_units: deg
+name: wedge_height
+requirement:
+  description: height of the wedge tip above the base
+  lsl: 20.0
+  usl: 21.4
+loop:
+  measure_angle: 90
+  vectors:
+    - length: {id: L, nominal: 80.0, upper_tol: 0.1, lower_tol: -0.1}
+      angle: {id: theta, nominal: 15.0, upper_tol: 0.5, lower_tol: -0.5}
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 2}
