@@ -1,0 +1,23 @@
+# Golden case B: asymmetric tolerances, two-sided spec, Bender modified RSS.
+schema_version: 1
+units: mm
+name: insert_in_housing
+requirement:
+  description: axial clearance between insert and housing
+  lsl: 0.10
+  usl: 0.50
+contributors:
+  - id: housing
+    nominal: 30.00
+    upper_tol: 0.20
+    lower_tol: 0.00
+    sensitivity: 1
+  - id: insert
+    nominal: 29.80
+    upper_tol: 0.00
+    lower_tol: -0.10
+    sensitivity: -1
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 7}
+  modified_rss_k: 1.5

@@ -1,0 +1,24 @@
+# Case C: one uniform and one normal contributor. Shows the
+# "RSS exceeds worst case" and "non-normal input" warnings.
+schema_version: 1
+units: mm
+name: uniform_mix
+requirement:
+  description: step height
+  lsl: 0.5
+  usl: 1.6
+contributors:
+  - id: x1
+    nominal: 20.0
+    upper_tol: 0.30
+    lower_tol: -0.30
+    sensitivity: 1
+    distribution: uniform
+  - id: x2
+    nominal: 19.0
+    upper_tol: 0.10
+    lower_tol: -0.10
+    sensitivity: -1
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 1}

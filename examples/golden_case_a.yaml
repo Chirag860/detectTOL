@@ -1,0 +1,34 @@
+# Golden case A (root.md, Phase 1): three plates in a slot.
+schema_version: 1
+units: mm
+name: plate_stack_in_slot
+requirement:
+  description: gap between top plate and slot ceiling
+  lsl: 0.0
+  usl: null
+contributors:
+  - id: slot_depth
+    nominal: 50.00
+    upper_tol: 0.10
+    lower_tol: -0.10
+    sensitivity: 1
+    distribution: normal
+    cp: 1.0
+  - id: plate_1
+    nominal: 16.60
+    upper_tol: 0.05
+    lower_tol: -0.05
+    sensitivity: -1
+  - id: plate_2
+    nominal: 16.60
+    upper_tol: 0.05
+    lower_tol: -0.05
+    sensitivity: -1
+  - id: plate_3
+    nominal: 16.60
+    upper_tol: 0.05
+    lower_tol: -0.05
+    sensitivity: -1
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 42}
