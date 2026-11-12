@@ -16,6 +16,17 @@ Every assumption the math relies on, with its reason and a reference. Approved b
 | A10 | Modified (Bender) RSS: `half-range = k·√(Σ(aᵢtᵢ)²)`; uses `tᵢ` directly and ignores cp and distribution. | Empirical inflation factor, k = 1.5. Can exceed worst case for few contributors; a warning is reported. | Bender (1962) as cited by Scholz (1995) §4.2. Primary not read. |
 | A11 | Units are millimetres and radians internally. Finite-difference step `h = max(1e-6, 1e-4·t)` is in the contributor's own unit. | Spec rule; step is near the unscaled optimum ε^(1/3) for central differences. | root.md §0, §3.4; math-review.md item 23. |
 
+## Vector loops (Phase 3)
+
+Derivations and reviewer check: `docs/reports/phase-3.md`. Status of each convention: `docs/DECISIONS.md` D22–D30.
+
+| # | Assumption | Reason | Reference |
+|---|---|---|---|
+| A12 | Angles in a vector loop are **relative**: φ_j is the counter-clockwise angle from the previous vector's direction to vector j; φ_1 is measured from the global +x axis. Absolute direction Θ_j = φ_1 + … + φ_j. A change in one angle therefore rotates that vector and every vector after it. | Maintainer's choice (relative angles). Matches the usual vector-loop formulation. An angle toleranced from a datum on the drawing (absolute) must **not** be entered as relative: the sensitivities differ in sign and size (bracket test: +4.64 vs −30 mm/rad). | Maintainer decision 2026-11-12; Gao, Chase & Magleby (1998), abstract only. |
+| A13 | The requirement is the projection of the open chain's resultant on a fixed measurement direction α, plus a constant: `Y = constant + Σ L_j cos(Θ_j − α)`. Positive Y points along α. α and the constant are exact (not toleranced). | Simplest sign rule that reproduces a 1D stack: vectors along +α add, vectors against it subtract. | Derived; `tests/core/test_loop.py`. |
+| A14 | Worst case, RSS, contributions, P_fail and Cpk of a loop are **linearised**: sensitivities `a_i = ∂Y/∂x_i` at the means, `mean_Y = Y(μ)`. The second-order mean shift is ignored, the linear worst case is not a true bound, and a variable whose sensitivity is zero at the mean contributes nothing. Monte Carlo uses the exact Y. | Spec §3.4. The tool reports `ZERO_SENSITIVITY` and `LINEARISATION_SUSPECT` when the linear model is visibly wrong. | Spec §3.4; math-review.md item 22. |
+| A15 | Lengths are millimetres and angles radians. An angle contributor's nominal, tolerances and sigma are in radians and its sensitivity in mm/rad. All variables are independent. Only open 2D chains: no closed loops, no kinematic adjustment between mating parts, no 3D. | Spec rule 5. Scope kept to what the Phase 3 closed-form tests cover. | root.md §0, Phase 3. |
+
 ## Not yet decided
 
 Open questions Q1–Q15 in `docs/reports/phase-R.md`. In particular: zero-tolerance contributors (Q4), Bender cap-or-warn (Q5), vector-loop angle and sign conventions (Q8), position-tolerance distribution (Q9), and every GD&T convention of Phase 4 (no ASME Y14.5-2018 reference has been verified).

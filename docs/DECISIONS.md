@@ -31,6 +31,22 @@ Decisions that are not dictated by `root.md`. Each has a status:
 | D20 | Q14 — spec file name | Kept as `root.md` | APPROVED 2026-11-12 | No instruction to rename; §6b's "SPEC.md" is read as `root.md`. |
 | D21 | Q15 — LGPL pythonocc under Apache-2.0 | Listed in `environment.yml` only; not a `pip` dependency of the package; never imported by Phases 0–2 code | APPROVED 2026-11-12 | Keeps the question open without blocking; needs the maintainer's licence call before Phase 5. |
 
+## Phase 3 (vector loops)
+
+D23–D30 were chosen by the implementer on 2026-11-12 to carry out "continue with phase 3". **They are PROVISIONAL until the maintainer confirms them.**
+
+| # | Question | Decision | Status | Reason |
+|---|---|---|---|---|
+| D22 | Q8 — relative or absolute angles | Relative | APPROVED 2026-11-12 | Maintainer: "choose relative angles". |
+| D23 | Q8 — zero reference and sense | First angle from global +x; counter-clockwise positive | PROVISIONAL | Standard mathematical convention. |
+| D24 | Q8 — gap sign | `Y = constant + Σ L_j cos(Θ_j − α)`: projection of the open chain's resultant on the measurement direction α; positive along α | PROVISIONAL | Reproduces the 1D sign rule (golden case A bit for bit). |
+| D25 | 2D or 3D | **2D only.** 3D is not implemented | PROVISIONAL | A 3D chain with relative angles needs a rotation convention (axis order, frames) that the spec does not give, and no Phase 3 required test is 3D. Needs the maintainer. |
+| D26 | Input format for loops | Python API only (`VectorLoop`, `analyze_loop`). No YAML, CLI or report support yet | PROVISIONAL | root.md §8: a change to the input schema after Phase 2 needs the maintainer. A proposal is in the Phase 3 report. |
+| D27 | Output for loops | New `LoopResult` wrapping an unchanged `StackResult` | PROVISIONAL | Keeps report JSON schema v1 untouched. |
+| D28 | Linearisation warnings | `ZERO_SENSITIVITY`: a variable whose linear effect `|a|·t` is ≤ 1e-12 mm while its exact one-at-a-time effect is > 1e-9 mm. `LINEARISATION_SUSPECT`: Monte Carlo std or mean differs from the linear value by more than 5 standard errors | PROVISIONAL | The spec asks for the consistency check but gives no threshold. 5 SE is tied to sampling error, not an arbitrary percentage. |
+| D29 | Linearised mean | `Y(μ)`; no second-order correction | PROVISIONAL | Spec §3.4 as written. |
+| D30 | Scope | Open chains only; α and the constant are exact | PROVISIONAL | No closed-loop solver in the spec's Phase 3 tests. |
+
 ## Still open (not needed until later phases)
 
-Q8 (vector-loop angle and sign conventions), Q9 (position-tolerance distribution), Q12 (bonus-tolerance test expectation), Q13 (flatness on top of size).
+Q9 (position-tolerance distribution), Q12 (bonus-tolerance test expectation), Q13 (flatness on top of size).

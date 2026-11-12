@@ -2,7 +2,7 @@
 
 Free, scriptable, verifiable mechanical tolerance stack-up analysis.
 
-**Status:** 1D linear stacks with a CLI (Phases 0–2 of `root.md`). 2D/3D loops, GD&T and STEP AP242 input are planned, not implemented.
+**Status:** 1D linear stacks with a CLI (Phases 0–2 of `root.md`) and 2D vector loops through the Python API only (Phase 3). 3D loops, GD&T and STEP AP242 input are planned, not implemented.
 
 ## What it does today
 

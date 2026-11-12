@@ -58,6 +58,7 @@ None. Output conventions are decisions D17–D19.
 
 ## Known limitations / open risks
 
+- **Update 2026-11-12:** CI has now run. Commit `f49a296` is green on all 9 jobs (3 OSes), each of which runs the CLI on golden case A. The Phase 2 gate is met; the next bullet describes the state when this report was written.
 - **CI has never run.** There is no GitHub repository, so "the CLI works on all 3 OSes in CI" (the Phase 2 gate) is **not met**. Verified on Windows only. The workflow file exists but is untested.
 - The Markdown snapshot is compared as text; a platform where a Monte Carlo statistic differs in the 6th significant figure would fail it. Not observed, not ruled out.
 - HTML output is tested for structure and escaping, not rendered in a browser by a test.

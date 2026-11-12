@@ -12,6 +12,8 @@
 - Smoke test `tests/test_smoke.py`.
 - Miniforge 26.9.4 installed for the current user at `%USERPROFILE%\miniforge3` (installer signature: Valid; not added to PATH, not registered as system Python).
 
+**Update 2026-11-12 (later the same day):** the repository was pushed to https://github.com/Chirag860/detectTOL and the first CI run (commit `f49a296`) finished **green on all 9 jobs**: pip route on ubuntu/macos/windows × Python 3.11 and 3.12, conda route on the three OSes. The CI gate below is therefore now met; the table shows the state when this report was first written.
+
 ## Gate status
 
 | Gate item | Status |
