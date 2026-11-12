@@ -6,6 +6,7 @@ Units are millimetres and radians internally.
 import logging
 
 from detecttol.core.analyze import analyze
+from detecttol.core.loop import LoopResult, LoopVariable, LoopVector, VectorLoop, analyze_loop
 from detecttol.core.models import (
     AnalysisConfig,
     Contributor,
@@ -23,10 +24,15 @@ logging.getLogger(__name__).addHandler(logging.NullHandler())
 __all__ = [
     "AnalysisConfig",
     "Contributor",
+    "LoopResult",
+    "LoopVariable",
+    "LoopVector",
     "MonteCarloConfig",
     "Requirement",
     "Stack",
     "StackResult",
+    "VectorLoop",
     "__version__",
     "analyze",
+    "analyze_loop",
 ]

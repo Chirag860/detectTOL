@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable, Sequence
 
 from detecttol.core import linear, montecarlo
-from detecttol.core.models import Stack
+from detecttol.core.models import AnalysisConfig, Contributor, Requirement, Stack
+from detecttol.core.montecarlo import FloatArray
 from detecttol.core.results import (
     AnalysisWarning,
     ContributorSummary,
@@ -40,16 +42,56 @@ def analyze(stack: Stack) -> StackResult:
     All lengths in the result are millimetres. Non-fatal conditions are returned
     in ``StackResult.warnings`` (and logged), never printed.
     """
-    req = stack.requirement
     contributors = stack.contributors
-    methods = stack.analysis.methods
+    constant = stack.requirement.constant
+
+    def sampler(n: int, seed: int) -> FloatArray:
+        return montecarlo.sample_stack(contributors, constant, n, seed)
+
+    return analyze_linearised(
+        name=stack.name,
+        units=stack.units,
+        requirement=stack.requirement,
+        contributors=contributors,
+        analysis=stack.analysis,
+        mean=linear.stack_mean(contributors, constant),
+        sampler=sampler,
+    )
+
+
+def analyze_linearised(
+    *,
+    name: str,
+    units: str,
+    requirement: Requirement,
+    contributors: Sequence[Contributor],
+    analysis: AnalysisConfig,
+    mean: float,
+    sampler: Callable[[int, int], FloatArray],
+) -> StackResult:
+    """Shared engine for linear stacks and linearised (vector-loop) stacks.
+
+    Args:
+        name, units: copied into the result.
+        requirement: spec limits [mm] (its ``constant`` is only echoed here; it
+            must already be included in ``mean`` and in the sampler's output).
+        contributors: contributors whose ``sensitivity`` is a_i = dY/dx_i
+            (exact for a linear stack, evaluated at the means otherwise).
+        analysis: methods to run, Monte Carlo settings, Bender factor.
+        mean: Y evaluated at the contributor means [mm].
+        sampler: ``sampler(n, seed)`` returns ``n`` samples of the exact Y [mm].
+
+    Worst case and RSS use ``mean`` and the sensitivities; Monte Carlo uses the
+    sampler, i.e. the exact (possibly nonlinear) function.
+    """
+    req = requirement
+    methods = analysis.methods
     warnings: list[AnalysisWarning] = []
 
     def warn(code: str, message: str) -> None:
         warnings.append(AnalysisWarning.model_validate({"code": code, "message": message}))
         logger.warning("%s: %s", code, message)
 
-    mean = linear.stack_mean(contributors, req.constant)
     wc_half = linear.worst_case_half_range(contributors)
     sigma = linear.rss_sigma(contributors)
     wc_pct = linear.worst_case_contributions(contributors)
@@ -131,7 +173,7 @@ def analyze(stack: Stack) -> StackResult:
             )
 
     modified_rss: ModifiedRssResult | None = None
-    k = stack.analysis.modified_rss_k
+    k = analysis.modified_rss_k
     if k is not None:
         half = linear.modified_rss_half_range(contributors, k)
         modified_rss = ModifiedRssResult(k=k, half_range=half, lower=mean - half, upper=mean + half)
@@ -144,10 +186,10 @@ def analyze(stack: Stack) -> StackResult:
 
     monte_carlo: MonteCarloResult | None = None
     if "monte_carlo" in methods:
-        mc_cfg = stack.analysis.monte_carlo
+        mc_cfg = analysis.monte_carlo
         if mc_cfg is None:  # pragma: no cover - guaranteed by AnalysisConfig validation
             raise ValueError("analysis.monte_carlo is required for the monte_carlo method")
-        y = montecarlo.sample_stack(contributors, req.constant, mc_cfg.n, mc_cfg.seed)
+        y = sampler(mc_cfg.n, mc_cfg.seed)
         monte_carlo = montecarlo.summarise(y, req.lsl, req.usl, mc_cfg.seed)
         if not monte_carlo.converged:
             warn(
@@ -165,8 +207,8 @@ def analyze(stack: Stack) -> StackResult:
             )
 
     return StackResult(
-        name=stack.name,
-        units=stack.units,
+        name=name,
+        units=units,
         description=req.description,
         lsl=req.lsl,
         usl=req.usl,
