@@ -14,6 +14,8 @@ Environment: Windows 11, conda env from `environment.yml`, Python 3.12.16, pytho
 - **`XCAFDoc_GeomTolerance` exposes no public methods at all** (no `GetObject`). If that holds on a real file, geometric tolerances (flatness, position, …) cannot be read through this class in this build, and Phase 5 needs another route. This is a red flag, not yet a conclusion: no AP242 file has been read.
 - Importing `OCC` only works when the conda env is properly activated (its `Library\bin` on PATH). Calling the env's `python.exe` directly crashed matplotlib/numpy with a Windows delay-load error (0xc06d007f). Use `conda activate` or `conda run`.
 
+**Update 2026-11-13 (Phase 5) — real files read.** The questions of this note are now answered by experiment; see `docs/reports/phase-5.md`. In short: geometry and assembly structure read reliably; geometric tolerances are readable only through the raw label data (the Python class is unusable) and 328 of 362 are recovered on the NIST AP242 set; dimension reading is verified on one file; writing PMI from Python crashes OCCT. NIST states its files "can be used without any restrictions".
+
 What the documentation and trackers say:
 
 - conda-forge `pythonocc-core`: latest **8.0.1.2**; version history 7.4.0 … 7.9.3, 8.0.1, 8.0.1.1, 8.0.1.2; platform map lists win-64, linux-64, osx-64, osx-arm64, linux-aarch64; license LGPL-3.0-or-later. [S1] Which Python versions (3.11–3.14) have builds: not visible in what I read — UNSURE.

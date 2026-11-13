@@ -60,6 +60,27 @@ The maintainer approved adding YAML/CLI support with the format proposed in the 
 | D35 | Report schema | Loop reports are `schema_version: 2` (`report-v2.schema.json`): the v1 `result` block plus a `loop` block. Linear reports stay v1, byte-for-byte | PROVISIONAL | Supersedes D27's "API only"; v1 consumers are unaffected. |
 | D36 | Example seed | `examples/wedge_height.yaml` uses seed 2, not 1 | PROVISIONAL | Seed 1 gives 227 failures where ~186 are expected (a 3-sigma draw; seeds 2–5 give 181–199, and an independent 2e7-sample run gives 1860 ppm vs 1865 predicted). An example whose interval misses the true value would mislead. |
 
+## 3D loops, Phase 4 and Phase 5 (2026-11-12/13)
+
+Maintainer instruction: "normal 3 sigma but implement 3d loops and then go ahead with phase 4 and 5 without stopping". D38 is the maintainer's; **everything else in this table is the implementer's and PROVISIONAL.**
+
+| # | Question | Decision | Status | Reason |
+|---|---|---|---|---|
+| D37 | 3D rotation convention | Relative yaw (z) → pitch (y) → roll (x) about the moving axes, right-handed; vector along local x; positive pitch tilts towards −z (A16). Supersedes D25 | PROVISIONAL | The spec gives none. Standard aerospace-style sequence; reduces to the 2D convention. |
+| D38 | Q9 — position tolerance distribution | Normal with ±T/2 at 3σ (σ = T/(6·cp)) | APPROVED 2026-11-12 | Maintainer: "normal 3 sigma". |
+| D39 | 3D in YAML | Schema v2 extended: optional `pitch` / `roll` per vector and optional `loop.measure_direction: [x, y, z]`; a loop is 3D when any of them is present. Report schema v2 gained `loop.measure_direction` and the variable kinds `pitch` / `roll` | PROVISIONAL | Additive; every earlier v2 file is unchanged. Schema v2 was introduced one day earlier and has no outside users. |
+| D40 | Q13 — flatness on top of size | Implemented as the spec says (extra `± t/2` contributor); the user decides whether to include the callout | PROVISIONAL — NEEDS HUMAN REVIEW | Double-counts under Rule #1; conservative. Not my call. |
+| D41 | Q12 — bonus-tolerance test | The test asserts that with an MMC bonus the failure rate of a *fixed* positional limit goes **up** (3.81e-3 vs 6.8e-6) | PROVISIONAL — NEEDS HUMAN REVIEW | That is what the spec's own model gives. Whether this is the comparison the maintainer wants is still Q12. |
+| D42 | Bonus formula for parts beyond the size limit | `|actual − MMC|` as the spec says, not `max(0, …)` | PROVISIONAL | Spec text; effect is 0.006 % on σ in the test case. `max(0, …)` is physically cleaner. |
+| D43 | GD&T input | Python API only (`detecttol.gdt`): no YAML or report support for callouts | PROVISIONAL | Phase 4 asks for conversions and tests, not for a file format; avoids another schema change without approval. |
+| D44 | Orientation tolerances | Only as an angle tolerance for vector loops; no 1D conversion | PROVISIONAL | Spec: "in Phase 3 loops". |
+| D45 | PMI reading route | XCAF (`XCAFDoc_DimTolTool`). Dimensions and datums through their objects; geometric tolerances through the raw child labels (type, value, material modifier), because the Python class has no methods | PROVISIONAL | Verified against the file text on NIST files; see phase-5 report for what is and is not read. |
+| D46 | "Documented counts" for the NIST models | Replaced by an independent, OCCT-free count of the entities in the file text (`cad/step_text.py`), plus hand-read values for CTC-01 | PROVISIONAL | No plain count table from NIST was located. |
+| D47 | NIST files in tests | Downloaded once by a fixture into the pytest cache, SHA-256 pinned; not committed. Skipped with a message when offline | PROVISIONAL | NIST: "can be used without any restrictions"; keeps 14 MB out of the repo. |
+| D48 | Annotation file | `schema_version: 1`, `units: mm`; kinds `dimension` (two parallel planar faces), `flatness`, `datum`; face = part name + index + centroid/normal fingerprint (1e-6 mm, 1e-9) | PROVISIONAL | Spec outline; tolerances are my choice. |
+| D49 | Synthetic STEP files | Geometry only. No synthetic PMI | PROVISIONAL | Writing PMI created through the Python binding crashes OCCT 8.0.1 (access violation). |
+| D50 | OCCT console output | OCCT's default message printers are removed once per process | PROVISIONAL | root.md §6: no printing in library code. |
+
 ## Still open (not needed until later phases)
 
-Q9 (position-tolerance distribution), Q12 (bonus-tolerance test expectation), Q13 (flatness on top of size).
+Q9 is answered (D38). Q12 (bonus-tolerance test expectation) and Q13 (flatness on top of size) are implemented provisionally as D41 and D40 and still need the maintainer or a GD&T reference.

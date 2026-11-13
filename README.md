@@ -2,7 +2,9 @@
 
 Free, scriptable, verifiable mechanical tolerance stack-up analysis.
 
-**Status:** 1D linear stacks with a CLI (Phases 0–2 of `root.md`) and 2D vector loops with relative angles (Phase 3; try `detecttol analyze examples/wedge_height.yaml`). 3D loops, GD&T and STEP AP242 input are planned, not implemented.
+**Status:** 1D linear stacks with a CLI (Phases 0–2 of `root.md`) and 2D vector loops with relative angles (Phase 3; try `detecttol analyze examples/wedge_height.yaml`). 3D loops are supported in YAML too (`examples/tilted_post_3d.yaml`). A GD&T subset (Phase 4) and a STEP AP242 reader (Phase 5) exist as Python APIs; building stacks from CAD (Phase 6) is not implemented.
+
+**Read the limits first:** the GD&T conversions have not been reviewed against ASME Y14.5 (`docs/reports/phase-4.md`), and the STEP reader loses about one geometric tolerance in ten on the NIST test files (`docs/reports/phase-5.md`).
 
 ## What it does today
 
