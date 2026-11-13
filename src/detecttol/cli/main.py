@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import re
 import sys
@@ -69,6 +70,46 @@ def _timestamp() -> str:
     """Now (UTC), or SOURCE_DATE_EPOCH if set, for reproducible reports."""
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     return utc_timestamp(float(epoch)) if epoch else utc_timestamp()
+
+
+@app.command()
+def faces(
+    step_file: Annotated[Path, typer.Argument(help="STEP file (.step / .stp).")],
+) -> None:
+    """List the planar faces of a STEP model as annotation-file selectors (YAML).
+
+    Each entry gives part name, face index, centroid [mm] and outward normal:
+    copy the ones you need into an annotation file. Also prints how much
+    semantic PMI the file contains. Needs pythonocc-core (conda-forge).
+    """
+    try:
+        # Imported here so that the rest of the CLI works without pythonocc-core.
+        from detecttol.cad.annotations import face_table
+        from detecttol.cad.step_reader import StepReadError, read_step
+    except ImportError as exc:
+        typer.echo(
+            "error: reading STEP files needs pythonocc-core (install the conda environment)",
+            err=True,
+        )
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    try:
+        model = read_step(step_file)
+    except StepReadError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    lines = [
+        f"# {step_file.as_posix()}",
+        f"# parts: {len(model.parts)}; semantic PMI: {len(model.dimensions)} dimensions,"
+        f" {len(model.geometric_tolerances)} geometric tolerances, {len(model.datums)} datums",
+    ]
+    lines += [f"# note: {note}" for note in model.notes]
+    lines.append("faces:")
+    for row in face_table(model):
+        lines.append(
+            f"  - {{part: {json.dumps(row['part'])}, face: {row['face']},"
+            f" centroid: {row['centroid']}, normal: {row['normal']}}}  # area {row['area']} mm^2"
+        )
+    typer.echo("\n".join(lines))
 
 
 @app.command()
