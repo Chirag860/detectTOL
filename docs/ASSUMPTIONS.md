@@ -55,6 +55,13 @@ Revised 2026-11-13. The maintainer delegated the review ("verify it on your own,
 | A25 | Shapes without any face (wireframe or annotation geometry beside the solid) are not parts and are skipped, with a note. Face index = position in OCCT's `TopExp_Explorer` order within a part; stable for one file, not guaranteed across CAD re-exports, which is why annotation files also carry a centroid/normal fingerprint. | Observed in every NIST file. | `docs/reports/phase-5.md` |
 | A26 | A PMI item whose face link OCCT does not provide is still returned, with an empty `targets` and a note on the model. A zero positional tolerance is accepted from the file only with an MMC or LMC modifier. | Nothing is dropped silently. | `tests/cad/test_nist.py` |
 
+## Stacks from CAD (Phase 6)
+
+| # | Assumption | Reason | Reference |
+|---|---|---|---|
+| A27 | A **contact** is a pair of planar faces of two different parts with opposite normals (n₁·n₂ ≤ −1 + 1e-9), in the same plane within the contact tolerance (default 1e-6 mm, configurable) and with overlapping extents. Overlap is judged on the faces' axis-aligned bounding boxes: exact for rectangular faces aligned with the axes, an approximation otherwise. Touching faces that are not both planar are reported and never used. | root.md Phase 6; bounding boxes keep the test simple and are exact for the supported synthetic cases. | `detecttol.cad.chain`, `tests/cad/test_chain.py` |
+| A28 | The chain runs from the part of the first face to the part of the second through contacts whose plane is perpendicular to the measurement direction d (default: outward normal of the first face). Inside each part it uses the distance between the entry and exit faces; sensitivity +1 if that distance points along d, −1 if against. Nominals are measured on the model and rounded to 1e-9 mm. Tolerances come from dimension annotations on the same two faces; contributors are ordered like those annotations. If there is no path, or more than one, the tool stops and says so. | Gives a rigid, translation-only 1D stack; the order rule makes a STEP-built stack reproduce a hand-written one exactly. | `tests/cad/test_chain.py` (golden case A identical to the YAML version) |
+
 ## Not yet decided
 
 Open questions Q1–Q15 in `docs/reports/phase-R.md`. In particular: zero-tolerance contributors (Q4), Bender cap-or-warn (Q5), vector-loop angle and sign conventions (Q8), position-tolerance distribution (Q9), and every GD&T convention of Phase 4 (no ASME Y14.5-2018 reference has been verified).
