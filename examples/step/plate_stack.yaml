@@ -1,0 +1,45 @@
+# Golden case A of root.md, built from a STEP assembly.
+# A housing with a 50 mm deep slot holds three 16.6 mm plates.
+# Requirement: gap between the top plate and the slot ceiling >= 0.
+# Expected (same as examples/golden_case_a.yaml): mean 0.2, worst case
+# [-0.05, 0.45], sigma 0.0440959, predicted failure 2.87 ppm.
+#
+# Face selectors were listed with:  detecttol faces examples/step/plate_stack.step
+schema_version: 3
+units: mm
+name: plate_stack_in_slot
+step_file: plate_stack.step
+requirement:
+  description: gap between top plate and slot ceiling
+  from: {part: PLATE_3, face: 5, centroid: [30.0, 15.0, 59.8], normal: [0, 0, 1]}
+  to: {part: HOUSING, face: 6, centroid: [30.0, 15.0, 60.0], normal: [0, 0, -1]}
+  lsl: 0.0
+  usl: null
+annotations:
+  - id: slot_depth
+    kind: dimension
+    from: {part: HOUSING, face: 8, centroid: [30.0, 15.0, 10.0], normal: [0, 0, 1]}
+    to: {part: HOUSING, face: 6, centroid: [30.0, 15.0, 60.0], normal: [0, 0, -1]}
+    upper_tol: 0.10
+    lower_tol: -0.10
+  - id: plate_1
+    kind: dimension
+    from: {part: PLATE_1, face: 4, centroid: [30.0, 15.0, 10.0], normal: [0, 0, -1]}
+    to: {part: PLATE_1, face: 5, centroid: [30.0, 15.0, 26.6], normal: [0, 0, 1]}
+    upper_tol: 0.05
+    lower_tol: -0.05
+  - id: plate_2
+    kind: dimension
+    from: {part: PLATE_2, face: 4, centroid: [30.0, 15.0, 26.6], normal: [0, 0, -1]}
+    to: {part: PLATE_2, face: 5, centroid: [30.0, 15.0, 43.2], normal: [0, 0, 1]}
+    upper_tol: 0.05
+    lower_tol: -0.05
+  - id: plate_3
+    kind: dimension
+    from: {part: PLATE_3, face: 4, centroid: [30.0, 15.0, 43.2], normal: [0, 0, -1]}
+    to: {part: PLATE_3, face: 5, centroid: [30.0, 15.0, 59.8], normal: [0, 0, 1]}
+    upper_tol: 0.05
+    lower_tol: -0.05
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 42}

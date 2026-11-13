@@ -1,0 +1,30 @@
+# Two towers on one base: height of tower B above tower A.
+# The chain goes down tower A (-25), across the base (no dimension: it enters and
+# leaves through the same face) and up tower B (+25.5).
+# Expected: mean 0.5, worst case 0.5 +/- 0.1, sigma sqrt(2 * 0.05^2)/3 = 0.0235702.
+schema_version: 3
+units: mm
+name: tower_step_height
+step_file: step_height.step
+requirement:
+  description: height of tower B above tower A
+  from: {part: TOWER_A, face: 5, centroid: [20.0, 15.0, 35.0], normal: [0, 0, 1]}
+  to: {part: TOWER_B, face: 5, centroid: [70.0, 15.0, 35.5], normal: [0, 0, 1]}
+  lsl: 0.4
+  usl: 0.6
+annotations:
+  - id: tower_a_height
+    kind: dimension
+    from: {part: TOWER_A, face: 4, centroid: [20.0, 15.0, 10.0], normal: [0, 0, -1]}
+    to: {part: TOWER_A, face: 5, centroid: [20.0, 15.0, 35.0], normal: [0, 0, 1]}
+    upper_tol: 0.05
+    lower_tol: -0.05
+  - id: tower_b_height
+    kind: dimension
+    from: {part: TOWER_B, face: 4, centroid: [70.0, 15.0, 10.0], normal: [0, 0, -1]}
+    to: {part: TOWER_B, face: 5, centroid: [70.0, 15.0, 35.5], normal: [0, 0, 1]}
+    upper_tol: 0.05
+    lower_tol: -0.05
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 5}

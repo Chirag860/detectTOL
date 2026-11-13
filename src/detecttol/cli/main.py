@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+import yaml
 
 import detecttol
 from detecttol.core.analyze import analyze as run_analysis
@@ -70,6 +71,27 @@ def _timestamp() -> str:
     """Now (UTC), or SOURCE_DATE_EPOCH if set, for reproducible reports."""
     epoch = os.environ.get("SOURCE_DATE_EPOCH")
     return utc_timestamp(float(epoch)) if epoch else utc_timestamp()
+
+
+def _load(path: Path) -> Any:
+    """Load any input file; a STEP-based stack (``step_file:``) needs pythonocc-core."""
+    try:
+        peek = yaml.safe_load(path.read_text(encoding="utf-8")) if path.is_file() else None
+    except (yaml.YAMLError, OSError, UnicodeDecodeError):
+        peek = None
+    if isinstance(peek, dict) and "step_file" in peek:
+        try:
+            # Imported here so that the rest of the CLI works without pythonocc-core.
+            from detecttol.cad.step_stack import build_step_stack
+        except ImportError as exc:
+            raise StackInputError(
+                [
+                    "step_file: reading STEP files needs pythonocc-core"
+                    " (install the conda environment)"
+                ]
+            ) from exc
+        return build_step_stack(peek, path.parent).stack
+    return load_input(path)
 
 
 @app.command()
@@ -133,7 +155,7 @@ def analyze(
     Without --out the report is printed to stdout (Markdown then has no image).
     """
     try:
-        loaded = load_input(stack_file)
+        loaded = _load(stack_file)
     except StackInputError as exc:
         for message in exc.errors:
             typer.echo(f"error: {message}", err=True)

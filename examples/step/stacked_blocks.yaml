@@ -1,0 +1,30 @@
+# A 16.6 mm plate on a 10 mm base: overall height, measured upwards (+z)
+# from the bottom of the base to the top of the plate.
+# Expected: mean 26.6, worst case 26.6 +/- 0.15, sigma sqrt(0.1^2 + 0.05^2)/3 = 0.0372678.
+schema_version: 3
+units: mm
+name: stacked_blocks_height
+step_file: stacked_blocks.step
+requirement:
+  description: overall height of base plus plate
+  from: {part: BASE, face: 4, centroid: [25.0, 15.0, 0.0], normal: [0, 0, -1]}
+  to: {part: PLATE, face: 5, centroid: [25.0, 15.0, 26.6], normal: [0, 0, 1]}
+  direction: [0, 0, 1]
+  lsl: 26.4
+  usl: 26.8
+annotations:
+  - id: base_thickness
+    kind: dimension
+    from: {part: BASE, face: 4, centroid: [25.0, 15.0, 0.0], normal: [0, 0, -1]}
+    to: {part: BASE, face: 5, centroid: [25.0, 15.0, 10.0], normal: [0, 0, 1]}
+    upper_tol: 0.10
+    lower_tol: -0.10
+  - id: plate_thickness
+    kind: dimension
+    from: {part: PLATE, face: 4, centroid: [25.0, 15.0, 10.0], normal: [0, 0, -1]}
+    to: {part: PLATE, face: 5, centroid: [25.0, 15.0, 26.6], normal: [0, 0, 1]}
+    upper_tol: 0.05
+    lower_tol: -0.05
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 3}

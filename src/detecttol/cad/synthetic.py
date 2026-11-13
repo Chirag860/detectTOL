@@ -12,8 +12,9 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
-from OCC.Core.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox, BRepPrimAPI_MakeCylinder
+from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.IFSelect import IFSelect_RetDone
 from OCC.Core.STEPCAFControl import STEPCAFControl_Writer
 from OCC.Core.STEPControl import STEPControl_AsIs
@@ -36,12 +37,20 @@ class BoxPart:
         origin: translation of the part in the assembly [mm].
         rotation_z_deg: rotation about the assembly z axis through the part's
             own origin, applied before the translation [degrees].
+        slot: optional ``(x0, x1, z0, z1)`` [mm, part frame]: a rectangular slot
+            cut through the whole y extent, leaving a floor at ``z0`` (normal +z)
+            and a ceiling at ``z1`` (normal -z).
+        cylinder_radius: if given, the part is instead a cylinder of this
+            radius and height ``size[2]`` standing on z = 0 with its axis at
+            ``(radius, radius)`` in the part frame (``size[0]``/``size[1]`` unused).
     """
 
     name: str
     size: tuple[float, float, float]
     origin: tuple[float, float, float] = (0.0, 0.0, 0.0)
     rotation_z_deg: float = 0.0
+    slot: tuple[float, float, float, float] | None = None
+    cylinder_radius: float | None = None
 
 
 def write_box_assembly(
@@ -67,7 +76,18 @@ def write_box_assembly(
         dx, dy, dz = part.size
         if min(dx, dy, dz) <= 0:
             raise ValueError(f"part '{part.name}': sizes must be > 0")
-        box = BRepPrimAPI_MakeBox(gp_Pnt(0.0, 0.0, 0.0), dx, dy, dz).Shape()
+        if part.cylinder_radius is not None:
+            r = part.cylinder_radius
+            axis = gp_Ax2(gp_Pnt(r, r, 0.0), gp_Dir(0.0, 0.0, 1.0))
+            box = BRepPrimAPI_MakeCylinder(axis, r, dz).Shape()
+        else:
+            box = BRepPrimAPI_MakeBox(gp_Pnt(0.0, 0.0, 0.0), dx, dy, dz).Shape()
+        if part.slot is not None:
+            x0, x1, z0, z1 = part.slot
+            if not (0.0 <= x0 < x1 <= dx and 0.0 < z0 < z1 < dz):
+                raise ValueError(f"part '{part.name}': slot must lie inside the box")
+            cutter = BRepPrimAPI_MakeBox(gp_Pnt(x0, -1.0, z0), gp_Pnt(x1, dy + 1.0, z1)).Shape()
+            box = BRepAlgoAPI_Cut(box, cutter).Shape()
         label = shape_tool.AddShape(box, False)
         TDataStd_Name.Set(label, part.name)
         rotation = gp_Trsf()

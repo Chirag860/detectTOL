@@ -27,7 +27,9 @@ from pathlib import Path
 from typing import Any
 
 from OCC.Core import XCAFDimTolObjects
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepGProp import brepgprop
 from OCC.Core.GeomAbs import (
     GeomAbs_Cone,
@@ -104,6 +106,7 @@ class FaceInfo:
         area: face area [mm^2].
         centroid: area centroid [mm].
         normal: outward unit normal for a plane, else ``None``.
+        bbox_min / bbox_max: corners of the face's axis-aligned bounding box [mm].
     """
 
     index: int
@@ -111,6 +114,8 @@ class FaceInfo:
     area: float
     centroid: Vec3
     normal: Vec3 | None
+    bbox_min: Vec3 = (0.0, 0.0, 0.0)
+    bbox_max: Vec3 = (0.0, 0.0, 0.0)
 
     @property
     def is_planar(self) -> bool:
@@ -254,12 +259,18 @@ def _face_info(index: int, face: Any) -> FaceInfo:
         d = adaptor.Plane().Axis().Direction()
         sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
         normal = (sign * d.X(), sign * d.Y(), sign * d.Z())
+    box = Bnd_Box()
+    box.SetGap(0.0)
+    brepbndlib.AddOptimal(face, box, False, False)
+    x0, y0, z0, x1, y1, z1 = box.Get()
     return FaceInfo(
         index=index,
         surface=surface,
         area=float(props.Mass()),
         centroid=(c.X(), c.Y(), c.Z()),
         normal=normal,
+        bbox_min=(x0, y0, z0),
+        bbox_max=(x1, y1, z1),
     )
 
 
