@@ -68,6 +68,7 @@ ignore = [
 "src/detecttol/cli/*" = ["B008"] # typer uses function calls in defaults
 "src/detecttol/report/render.py" = ["E501"] # report templates have long table rows
 "tests/*" = ["B008"] # hypothesis strategies as argument defaults
+"validation/*" = ["T201"] # stand-alone scripts report on stdout
 
 [tool.mypy]
 python_version = "3.11"
