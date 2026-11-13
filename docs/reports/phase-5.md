@@ -168,4 +168,23 @@ Not started.
 
 ## CI for this phase
 
-CI_PHASE5_RESULT
+Commit `b92caf1` (3D loops, Phase 4, Phase 5 and these reports), GitHub Actions, queried from the GitHub API after the run completed:
+
+```
+sha=b92caf1 status=completed conclusion=success
+conda (macos-latest): completed/success
+conda (ubuntu-latest): completed/success
+conda (windows-latest): completed/success
+core-pip (macos-latest, 3.11): completed/success
+core-pip (macos-latest, 3.12): completed/success
+core-pip (ubuntu-latest, 3.11): completed/success
+core-pip (ubuntu-latest, 3.12): completed/success
+core-pip (windows-latest, 3.11): completed/success
+core-pip (windows-latest, 3.12): completed/success
+```
+
+What this does and does not show:
+
+- The three conda jobs have pythonocc, so the synthetic-STEP, mapping and annotation tests ran on Linux, macOS and Windows.
+- **Not confirmed:** whether the 13 NIST tests ran or were skipped on CI. They skip (visibly) if the download fails, and a skip still gives a green job. I could not read the job logs without signing in. Locally on Windows they ran and passed.
+- The six pip jobs skip the five pythonocc test modules by design.
