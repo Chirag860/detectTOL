@@ -11,7 +11,7 @@ from detecttol.core import linear, montecarlo
 from detecttol.core.analyze import analyze_linearised
 from detecttol.core.models import Contributor, Stack
 from detecttol.core.montecarlo import FloatArray
-from detecttol.core.results import StackResult
+from detecttol.core.results import AnalysisWarning, StackResult
 from detecttol.gdt.models import Flatness, Parallelism, PlanarDatum, Position
 
 Callout = Annotated[Flatness | Parallelism | Position, Field(discriminator="kind")]
@@ -100,7 +100,7 @@ def sample_gdt_stack(gdt: GdtStack, n: int, seed: int) -> FloatArray:
     for callout in gdt.callouts:
         size = gdt.size_of(callout) if isinstance(callout, Position) else None
         if isinstance(callout, Position) and callout.material_condition != "RFS" and size:
-            bonus = np.abs(samples[size.id] - callout.reference_size(size))
+            bonus = callout.bonus(size, samples[size.id])
             sigma = (callout.tolerance + bonus) / (6.0 * callout.cp)
             y += callout.sensitivity * sigma * rng.standard_normal(n)
         else:
@@ -120,13 +120,14 @@ def analyze_gdt(gdt: GdtStack) -> StackResult:
     callout classes). Monte Carlo samples the callouts exactly, including the
     size-dependent bonus zone of MMC/LMC position callouts. All lengths in mm.
 
-    Note: with an MMC/LMC position callout the output is a scale mixture of
-    normals, not a normal; the analytic P_fail and Cpk are then approximate
-    and the Monte Carlo result should be preferred.
+    With an MMC/LMC position callout the output is a scale mixture of normals,
+    not a normal: the analytic P_fail and Cpk under-predict the tail (about 25 %
+    low in the documented test case). A ``NON_NORMAL_INPUT`` warning is added
+    for every such callout that is not already reported.
     """
     contributors = gdt.linear_contributors()
     stack = gdt.stack
-    return analyze_linearised(
+    result = analyze_linearised(
         name=stack.name,
         units=stack.units,
         requirement=stack.requirement,
@@ -135,3 +136,19 @@ def analyze_gdt(gdt: GdtStack) -> StackResult:
         mean=linear.stack_mean(contributors, stack.requirement.constant),
         sampler=lambda n, seed: sample_gdt_stack(gdt, n, seed),
     )
+    bonus_ids = [
+        c.id
+        for c in gdt.callouts
+        if isinstance(c, Position) and c.material_condition != "RFS" and c.sensitivity != 0.0
+    ]
+    if not bonus_ids or result.rss is None:
+        return result
+    warning = AnalysisWarning(
+        code="NON_NORMAL_INPUT",
+        message=(
+            "P_fail and Cpk assume a normal output, but position callout(s) with an MMC/LMC"
+            f" bonus make it a scale mixture of normals: {', '.join(bonus_ids)}. The analytic"
+            " P_fail under-predicts the tail; prefer the Monte Carlo result."
+        ),
+    )
+    return result.model_copy(update={"warnings": [*result.warnings, warning]})

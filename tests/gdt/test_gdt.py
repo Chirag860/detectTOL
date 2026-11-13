@@ -1,10 +1,12 @@
 """Phase 4: GD&T subset. Hand-derived cases for every supported type.
 
-Conventions under test (docs/ASSUMPTIONS.md A17-A22; all NEED HUMAN REVIEW):
+Conventions under test (docs/ASSUMPTIONS.md A17-A22):
 
-    flatness / parallelism, zone t   -> contributor 0 +/- t/2
+    flatness / parallelism, zone t   -> contributor 0 +/- t/2 when Rule #1 does not
+                                        apply (within_size=False); nothing otherwise
     position RFS, zone diameter T    -> contributor 0 +/- T/2, normal, sigma = T/(6 cp)
-    position MMC/LMC                 -> zone T + B, B = |size - MMC (LMC) size|
+    position MMC/LMC                 -> zone T + B, B = departure of the size from
+                                        MMC (LMC), clamped to [0, size range]
                                         delta = (T + B)/(6 cp) * z
     perpendicularity / angularity    -> angle +/- atan(t / feature_length)
 
@@ -54,7 +56,8 @@ def block_stack(**kw: Any) -> Any:
 
 def test_flatness_adds_a_half_zone_contributor() -> None:
     """Y = block + spacer + flatness deviation; block 20 +/-0.1, spacer 5 +/-0.05,
-    flatness 0.04 on the block top -> contributor 0 +/-0.02 (sigma 0.006666667).
+    flatness 0.04 on the block top, Rule #1 NOT applying (within_size=False)
+    -> contributor 0 +/-0.02 (sigma 0.006666667).
 
     mean_Y = 25.0;  W = 0.1 + 0.05 + 0.02 = 0.17
     (3 sigma)^2 = 0.1^2 + 0.05^2 + 0.02^2 = 0.0129 -> 3 sigma = 0.1135782, sigma = 0.03785939
@@ -62,7 +65,7 @@ def test_flatness_adds_a_half_zone_contributor() -> None:
     WC %  = 58.82353, 29.41176, 11.76471
     USL 25.2: z = 0.2/0.03785939 = 5.282705 -> P_fail = 6.364498e-8; Cpu = 1.760902
     """
-    callout = Flatness(id="flat_top", tolerance=0.04)
+    callout = Flatness(id="flat_top", tolerance=0.04, within_size=False)
     c = callout.to_contributor()
     assert (c.nominal, c.upper_tol, c.lower_tol, c.sensitivity) == (0.0, 0.02, -0.02, 1.0)
     assert c.sigma == pytest.approx(0.02 / 3, **EXACT)
@@ -89,7 +92,7 @@ def test_parallelism_uses_the_same_conversion() -> None:
     """Parallelism 0.06 to datum A -> contributor 0 +/-0.03 (sigma 0.01).
     W = 0.18; sigma = sqrt(0.1^2 + 0.05^2 + 0.03^2)/3 = sqrt(0.0134)/3 = 0.03858612;
     Cpu = 0.2/0.1157584 = 1.727737; P_fail = 1.090493e-7."""
-    callout = Parallelism(id="par", tolerance=0.06, datums=A)
+    callout = Parallelism(id="par", tolerance=0.06, datums=A, within_size=False)
     r = analyze_gdt(GdtStack(stack=block_stack(), datums=DATUMS, callouts=[callout]))
     assert r.worst_case is not None and r.rss is not None
     assert r.worst_case.half_range == pytest.approx(0.18, **EXACT)
@@ -100,7 +103,9 @@ def test_parallelism_uses_the_same_conversion() -> None:
 
 def test_flatness_distribution_and_sensitivity_are_respected() -> None:
     """Flatness 0.06 uniform, a = -2: contributor 0 +/-0.03, sigma = 0.03/sqrt(3) = 0.01732051."""
-    c = Flatness(id="f", tolerance=0.06, sensitivity=-2.0, distribution="uniform").to_contributor()
+    c = Flatness(
+        id="f", tolerance=0.06, sensitivity=-2.0, distribution="uniform", within_size=False
+    ).to_contributor()
     assert c.sensitivity == -2.0 and c.distribution == "uniform"
     assert c.sigma == pytest.approx(0.01732051, **SEVEN_SF)
 
@@ -170,12 +175,13 @@ def test_position_mmc_hole_reference_size_sigma_and_worst_case() -> None:
     MMC size (smallest hole) = 10.0. Position T = 0.2 at MMC.
 
     Worst-case half-range = (T + size range)/2 = (0.2 + 0.2)/2 = 0.2
-    B = |s - 10.0|, s - 10.0 ~ N(0.1, 0.03333333^2) (fold at -3 sigma):
-        E[B]   = 0.1 (1 - 2 Phi(-3)) + 2 sigma_s phi(3) = 0.09973002 + 0.00029546 = 0.1000255
-        E[B^2] = 0.1^2 + sigma_s^2 = 0.01111111
-        E[(T+B)^2] = 0.04 + 2*0.2*0.1000255 + 0.01111111 = 0.09112130
-    sigma_delta = sqrt(0.09112130)/6 = 0.05031051
-        (0.05030770 if the fold is ignored; RFS would be 0.2/6 = 0.03333333)
+    B = clip(s - 10.0, 0, 0.2) = 0.1 + sigma_s * clip(z, -3, 3):
+        E[B]   = 0.1 (symmetry)
+        Var[B] = sigma_s^2 * c(3), c(k) = (2 Phi(k) - 1) - 2 k phi(k) + 2 k^2 Phi(-k)
+               = 0.001111111 * 0.9950073 = 0.001105564
+        E[(T+B)^2] = (0.2 + 0.1)^2 + 0.001105564 = 0.09110556
+    sigma_delta = sqrt(0.09110556)/6 = 0.05030616
+        (RFS would be 0.2/6 = 0.03333333)
     """
     gdt = bonus_stack("MMC")
     pos = gdt.callouts[0]
@@ -183,17 +189,19 @@ def test_position_mmc_hole_reference_size_sigma_and_worst_case() -> None:
     size = gdt.size_of(pos)
     assert size is not None
     assert pos.reference_size(size) == pytest.approx(10.0, **EXACT)
-    assert pos.bonus_sigma(size) == pytest.approx(0.05031051, **SEVEN_SF)
+    assert pos.bonus_sigma(size) == pytest.approx(0.05030616, **SEVEN_SF)
     c = pos.to_contributor(size)
     assert c.half_range == pytest.approx(0.2, **EXACT)
-    assert c.sigma == pytest.approx(0.05031051, **SEVEN_SF)
+    assert c.sigma == pytest.approx(0.05030616, **SEVEN_SF)
 
     r = analyze_gdt(gdt)
     assert r.worst_case is not None and r.rss is not None
     assert r.worst_case.half_range == pytest.approx(0.2, **EXACT)
-    assert r.rss.sigma == pytest.approx(0.05031051, **SEVEN_SF)
-    # Normal approximation with that sigma: 2 Phi(-0.15/0.05031051) = 2.868546e-3.
-    assert r.rss.p_fail == pytest.approx(2.868546e-3, rel=1e-5)
+    assert r.rss.sigma == pytest.approx(0.05030616, **SEVEN_SF)
+    # Normal approximation with that sigma: 2 Phi(-0.15/0.05030616) = 2.866134e-3.
+    assert r.rss.p_fail == pytest.approx(2.866134e-3, rel=1e-5)
+    # The output is not normal: the report must say so.
+    assert "NON_NORMAL_INPUT" in [w.code for w in r.warnings]
 
 
 def test_bonus_tolerance_raises_the_failure_rate_of_a_fixed_positional_limit() -> None:
@@ -201,8 +209,8 @@ def test_bonus_tolerance_raises_the_failure_rate_of_a_fixed_positional_limit() -
 
     Same hole and position callout, positional requirement +/-0.15, N = 400 000:
       RFS: sigma 0.03333333 -> P_fail = 2 Phi(-4.5) = 6.795346e-6
-      MMC: exact mixture P_fail = E_s[2 Phi(-0.9/(0.2 + B))] = 3.814847e-3
-           (the normal approximation, 2.868546e-3, is 25 % too low: heavier tails)
+      MMC: exact mixture P_fail = E_s[2 Phi(-0.9/(0.2 + B))] = 3.809975e-3
+           (the normal approximation, 2.866134e-3, is 25 % too low: heavier tails)
     The bonus enlarges the zone and the model lets the deviation fill it, so
     against a FIXED limit the failure rate goes UP (about 560x), not down.
     Monte Carlo tolerance for MMC: SE = sqrt(p/N) = 9.8e-5 -> 5 SE.
@@ -212,8 +220,8 @@ def test_bonus_tolerance_raises_the_failure_rate_of_a_fixed_positional_limit() -
     assert rfs.rss is not None and mmc.rss is not None
     assert rfs.monte_carlo is not None and mmc.monte_carlo is not None
     assert rfs.rss.p_fail == pytest.approx(6.795346e-6, **SEVEN_SF)
-    assert mmc.monte_carlo.fraction_fail == pytest.approx(3.814847e-3, abs=5 * 9.8e-5)
-    assert mmc.monte_carlo.std == pytest.approx(0.05031051, rel=0.02)
+    assert mmc.monte_carlo.fraction_fail == pytest.approx(3.809975e-3, abs=5 * 9.8e-5)
+    assert mmc.monte_carlo.std == pytest.approx(0.05030616, rel=0.02)
     assert rfs.monte_carlo.std == pytest.approx(0.2 / 6, rel=0.02)
     # Direction of the effect, with a wide margin (expected ratio ~560).
     assert mmc.monte_carlo.fraction_fail > 50 * max(rfs.monte_carlo.fraction_fail, 1e-5)
@@ -223,24 +231,25 @@ def test_bonus_tolerance_raises_the_failure_rate_of_a_fixed_positional_limit() -
 
 
 def test_position_lmc_hole_measures_the_bonus_from_the_largest_size() -> None:
-    """LMC size of the hole = 10.2. B = |s - 10.2| with 10.2 - s ~ N(0.1, sigma_s^2):
-    the same folded normal as at MMC, so sigma_delta = 0.05031051 again.
-    The bonus now grows with SMALLER distance to 10.2, i.e. big holes get the big zone."""
+    """LMC size of the hole = 10.2. B = clip(10.2 - s, 0, 0.2): by symmetry the same
+    distribution as at MMC, so sigma_delta = 0.05030616 again. The bonus now grows
+    as the hole gets SMALLER (departure from LMC)."""
     gdt = bonus_stack("LMC", mc=50_000)
     pos = gdt.callouts[0]
     assert isinstance(pos, Position)
     size = gdt.size_of(pos)
     assert size is not None
     assert pos.reference_size(size) == pytest.approx(10.2, **EXACT)
-    assert pos.bonus_sigma(size) == pytest.approx(0.05031051, **SEVEN_SF)
+    assert pos.bonus_sigma(size) == pytest.approx(0.05030616, **SEVEN_SF)
     assert analyze_gdt(gdt).monte_carlo is not None
 
 
 def test_position_mmc_pin_uses_the_largest_size() -> None:
     """Pin 8.0 +0.0/-0.1: mu_s = 7.95, t_s = 0.05, sigma_s = 0.01666667; MMC = 8.0.
-    Position T = 0.1 at MMC: E[B] = 0.05001274;
-    E[(T+B)^2] = 0.01 + 0.2*0.05001274 + (0.0025 + 0.000277778) = 0.02278033
-    sigma_delta = sqrt(0.02278033)/6 = 0.02515525;  WC half-range = (0.1 + 0.1)/2 = 0.1.
+    Position T = 0.1 at MMC: B = clip(8.0 - s, 0, 0.1), E[B] = 0.05,
+    Var[B] = 0.01666667^2 * 0.9950073 = 0.0002763909;
+    E[(T+B)^2] = 0.15^2 + 0.0002763909 = 0.02277639
+    sigma_delta = sqrt(0.02277639)/6 = 0.02515308;  WC half-range = (0.1 + 0.1)/2 = 0.1.
     LMC of the pin = 7.9 (smallest)."""
     gdt = bonus_stack("MMC", feature="pin")
     pos = gdt.callouts[0]
@@ -248,7 +257,7 @@ def test_position_mmc_pin_uses_the_largest_size() -> None:
     size = gdt.size_of(pos)
     assert size is not None
     assert pos.reference_size(size) == pytest.approx(8.0, **EXACT)
-    assert pos.bonus_sigma(size) == pytest.approx(0.02515525, **SEVEN_SF)
+    assert pos.bonus_sigma(size) == pytest.approx(0.02515308, **SEVEN_SF)
     assert pos.to_contributor(size).half_range == pytest.approx(0.1, **EXACT)
     lmc = bonus_stack("LMC", feature="pin").callouts[0]
     assert isinstance(lmc, Position)
@@ -277,13 +286,14 @@ def test_bonus_sigma_for_a_bounded_size_distribution_and_cp() -> None:
 
 
 def test_monte_carlo_bonus_uses_the_same_size_samples() -> None:
-    """Reproduce the sampler by hand: size first, then z; delta = (T + |s - 10|)/6 * z."""
+    """Reproduce the sampler by hand: size first, then z;
+    delta = (T + clip(s - 10, 0, 0.2))/6 * z."""
     gdt = bonus_stack("MMC", mc=1000)
     y = sample_gdt_stack(gdt, 1000, 9)
     rng = np.random.default_rng(9)
     s = rng.normal(10.1, 0.1 / 3.0, 1000)
     z = rng.standard_normal(1000)
-    assert np.allclose(y, (0.2 + np.abs(s - 10.0)) / 6.0 * z, rtol=0, atol=1e-15)
+    assert np.allclose(y, (0.2 + np.clip(s - 10.0, 0.0, 0.2)) / 6.0 * z, rtol=0, atol=1e-15)
 
 
 def test_stack_without_callouts_equals_the_plain_engine() -> None:
@@ -351,7 +361,7 @@ def test_callout_validation() -> None:
     with pytest.raises(ValidationError):
         Flatness.model_validate({"id": "f", "tolerance": 0.1, "datums": {"primary": "A"}})
     with pytest.raises(ValidationError):
-        Parallelism.model_validate({"id": "p", "tolerance": 0.1})  # datum required
+        Parallelism.model_validate({"id": "p", "tolerance": 0.1, "within_size": True})  # datum
     with pytest.raises(ValidationError, match="feature and size_contributor are required"):
         Position(id="p", tolerance=0.1, datums=A, material_condition="MMC")
     with pytest.raises(ValidationError):
@@ -378,7 +388,9 @@ def test_callout_validation() -> None:
 def test_gdt_stack_validation() -> None:
     stack = block_stack()
     with pytest.raises(ValidationError, match="undeclared datum"):
-        GdtStack(stack=stack, callouts=[Parallelism(id="p", tolerance=0.1, datums=A)])
+        GdtStack(
+            stack=stack, callouts=[Parallelism(id="p", tolerance=0.1, datums=A, within_size=True)]
+        )
     with pytest.raises(ValidationError, match="duplicate label"):
         GdtStack(stack=stack, datums=[PlanarDatum(label="A"), PlanarDatum(label="A")])
     with pytest.raises(ValidationError, match="not unique"):
@@ -403,3 +415,104 @@ def test_gdt_stack_validation() -> None:
                 )
             ],
         )
+
+
+def test_flatness_inside_the_size_tolerance_adds_nothing() -> None:
+    """Rule #1 (ASME Y14.5-2018 5.8.1): the form of a regular feature of size is
+    controlled by its limits of size, so a flatness (default) or a parallelism
+    between the two faces of the stacked size dimension is a refinement inside
+    the size tolerance. Block 20 +/-0.1 + spacer 5 +/-0.05:
+
+    W = 0.15 and sigma = sqrt(0.1^2 + 0.05^2)/3 = sqrt(0.0125)/3 = 0.03726780,
+    exactly as without the callouts. The callouts still appear in the result,
+    with zero tolerance and 0 % contribution, so nothing is hidden.
+    """
+    callouts = [
+        Flatness(id="flat_top", tolerance=0.04),
+        Parallelism(id="par", tolerance=0.06, datums=A, within_size=True),
+    ]
+    assert Flatness(id="f", tolerance=0.04).within_size is True
+    r = analyze_gdt(GdtStack(stack=block_stack(), datums=DATUMS, callouts=callouts))
+    plain = analyze(block_stack())
+    assert r.worst_case is not None and r.rss is not None and plain.rss is not None
+    assert r.worst_case.half_range == pytest.approx(0.15, **EXACT)
+    assert r.rss.sigma == pytest.approx(0.03726780, **SEVEN_SF)
+    assert r.rss.sigma == plain.rss.sigma and r.rss.p_fail == plain.rss.p_fail
+    assert [c.id for c in r.contributors] == ["block", "spacer", "flat_top", "par"]
+    assert [c.half_range for c in r.contributors[2:]] == [0.0, 0.0]
+    assert [c.rss_contribution_pct for c in r.contributors[2:]] == [0.0, 0.0]
+
+
+def test_bonus_is_clamped_to_the_size_range() -> None:
+    """Hole 10.0 +0.2/-0.0 at MMC (reference 10.0): bonus = clip(s - 10.0, 0, 0.2).
+    9.95 -> 0 (beyond MMC: a reject, no bonus); 10.0 -> 0; 10.05 -> 0.05;
+    10.2 -> 0.2; 10.3 -> 0.2 (beyond LMC: no more than the size range).
+    At LMC (reference 10.2) the same sizes give 0.2, 0.2, 0.15, 0, 0."""
+    gdt = bonus_stack("MMC")
+    pos = gdt.callouts[0]
+    assert isinstance(pos, Position)
+    size = gdt.size_of(pos)
+    assert size is not None
+    sizes = np.array([9.95, 10.0, 10.05, 10.2, 10.3])
+    assert pos.bonus(size, sizes) == pytest.approx([0.0, 0.0, 0.05, 0.2, 0.2], abs=1e-12)
+    lmc = bonus_stack("LMC").callouts[0]
+    assert isinstance(lmc, Position)
+    assert lmc.bonus(size, sizes) == pytest.approx([0.2, 0.2, 0.15, 0.0, 0.0], abs=1e-12)
+
+
+def test_bonus_lowers_the_inspection_reject_rate_for_a_fixed_process() -> None:
+    """The comparison root.md originally asked for ("failure lower than the RFS
+    equivalent"), in the sense in which it is true: the bonus does not change the
+    process, it widens the acceptance zone.
+
+    Fixed process: radial deviation r ~ Rayleigh(sigma_p), sigma_p = T/(6 cp).
+    A part is rejected if r > (T + B)/2.
+
+    T = 0.2, cp = 1 (sigma_p = 0.03333333):
+        RFS:                 exp(-(3 cp)^2/2) = exp(-4.5) = 0.01110900
+        MMC, normal size:    E[exp(-((T+B)/2)^2/(2 sigma_p^2))] = 2.620943e-4
+        MMC, uniform size:   (sqrt(2 pi)/3)(Phi(6) - Phi(3)) = 1.127897e-3
+    Poorer process, cp = 0.5 (sigma_p = 0.06666667):
+        RFS: exp(-1.125) = 0.3246525;  MMC, normal size: 0.08953001
+    MMC <= RFS always, because B >= 0 for every part.
+    """
+
+    def position(condition: str, cp: float = 1.0) -> Position:
+        kw: dict[str, Any] = {}
+        if condition != "RFS":
+            kw = {"feature": "hole", "size_contributor": "size"}
+        return Position(id="p", tolerance=0.2, datums=A, material_condition=condition, cp=cp, **kw)
+
+    normal_size = make_stack([contributor("size", 10.0, 0.2, 0.0, 0.0)], usl=1.0).contributors[0]
+    uniform_size = make_stack(
+        [contributor("size", 10.0, 0.2, 0.0, 0.0, "uniform")], usl=1.0
+    ).contributors[0]
+    truncated_size = make_stack(
+        [contributor("size", 10.0, 0.2, 0.0, 0.0, "truncated_normal")], usl=1.0
+    ).contributors[0]
+    fixed_size = make_stack([contributor("size", 10.1, 0.0, 0.0, 0.0)], usl=11.0).contributors[0]
+
+    rfs = position("RFS").reject_probability()
+    mmc_normal = position("MMC").reject_probability(normal_size)
+    mmc_uniform = position("MMC").reject_probability(uniform_size)
+    assert rfs == pytest.approx(0.01110900, **SEVEN_SF)
+    assert rfs == pytest.approx(math.exp(-4.5), rel=1e-12)
+    assert mmc_normal == pytest.approx(2.620943e-4, **SEVEN_SF)
+    assert mmc_uniform == pytest.approx(1.127897e-3, **SEVEN_SF)
+    assert mmc_normal < mmc_uniform < rfs
+    assert position("LMC").reject_probability(normal_size) == pytest.approx(mmc_normal, rel=1e-9)
+
+    assert position("RFS", cp=0.5).reject_probability() == pytest.approx(0.3246525, **SEVEN_SF)
+    assert position("MMC", cp=0.5).reject_probability(normal_size) == pytest.approx(
+        0.08953001, **SEVEN_SF
+    )
+    # A truncated-normal size lies between the normal and the uniform case.
+    assert mmc_normal * 0.5 < position("MMC").reject_probability(truncated_size) < mmc_uniform
+    # A size with zero tolerance has a size range of 0, hence no bonus at all:
+    # the MMC value equals the RFS value exp(-4.5).
+    assert position("MMC").reject_probability(fixed_size) == pytest.approx(
+        math.exp(-4.5), rel=1e-12
+    )
+    assert position("MMC").process_sigma() == pytest.approx(0.2 / 6, **EXACT)
+    with pytest.raises(ValueError, match="size contributor is required"):
+        position("MMC").reject_probability(None)

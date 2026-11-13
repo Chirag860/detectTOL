@@ -2,20 +2,23 @@
 
 Supported, and nothing else (docs/ASSUMPTIONS.md A17-A22):
 
-- Flatness / parallelism: zone width ``t`` -> translational contributor
-  ``0 +/- t/2`` along the stack direction.
+- Flatness / parallelism, zone width ``t``. For a regular feature of size the
+  envelope rule (ASME Y14.5-2018 5.8.1, Rule #1) already keeps form inside the
+  size limits, so by default (``within_size=True``) the callout adds **no**
+  variation to a stack through that size. With ``within_size=False`` (Rule #1
+  does not apply: independency, stock, free state, or the surface is not part
+  of the size dimension in the stack) it adds a contributor ``0 +/- t/2``.
 - Position, diametral zone ``T``, RFS: contributor ``0 +/- T/2`` along the
   stack direction, normal, ``sigma = T/(6 cp)``.
-- Position at MMC / LMC: the zone grows by the bonus ``B = |actual size -
-  MMC (or LMC) size|``; deviation ``delta = (T + B)/(6 cp) * z``, ``z ~ N(0,1)``.
+- Position at MMC / LMC: the zone grows by the bonus ``B``, the departure of the
+  actual size from the MMC (LMC) size, limited to ``[0, size range]``. Stack
+  model: ``delta = (T + B)/(6 cp) * z``, ``z ~ N(0,1)``.
 - Perpendicularity / angularity: zone width ``t`` over feature length ``Lf`` ->
   angular contributor ``+/- atan(t/Lf)`` rad for a vector loop.
 - Datum reference frames: primary / secondary / tertiary **planar** datums,
   validated but not used to compute sensitivities (the user supplies the stack
   direction through ``sensitivity``).
 
-Every conversion is a modelling convention that needs review against
-ASME Y14.5-2018 by a qualified person (see docs/reports/phase-4.md).
 All lengths are millimetres, angles radians.
 """
 
@@ -24,7 +27,10 @@ from __future__ import annotations
 import math
 from typing import Annotated, Literal
 
+import numpy as np
+import numpy.typing as npt
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from scipy import integrate, stats
 
 from detecttol.core.loop import LoopVariable
 from detecttol.core.models import Contributor, Distribution, FiniteFloat
@@ -35,6 +41,7 @@ DatumLabel = Annotated[str, Field(pattern=r"^[A-Z]{1,2}$")]
 PositiveFloat = Annotated[float, Field(gt=0.0, allow_inf_nan=False)]
 MaterialCondition = Literal["RFS", "MMC", "LMC"]
 FeatureType = Literal["hole", "pin"]
+FloatArray = npt.NDArray[np.float64]
 
 
 class PlanarDatum(BaseModel):
@@ -92,34 +99,45 @@ class _TranslationalCallout(BaseModel):
 class Flatness(_TranslationalCallout):
     """Flatness, zone width ``tolerance`` [mm] (a form tolerance: no datums).
 
-    Conversion: contributor ``0 +/- tolerance/2`` along the stack direction.
+    Attributes:
+        within_size: ``True`` (default) when the surface belongs to a regular
+            feature of size whose size dimension is in the stack: under the
+            envelope rule the flatness is a refinement *inside* the size limits
+            and adds no variation, so the contributor has zero tolerance.
+            ``False`` when Rule #1 does not apply to it: the contributor is then
+            ``0 +/- tolerance/2`` along the stack direction.
     """
 
     kind: Literal["flatness"] = "flatness"
     distribution: Distribution = "normal"
+    within_size: bool = True
 
     def to_contributor(self) -> Contributor:
-        """Contributor with nominal 0, tolerance ``+/- t/2`` [mm]."""
-        return _zone_contributor(
-            self.id, self.tolerance, self.sensitivity, self.distribution, self.cp
-        )
+        """Contributor with nominal 0 and tolerance ``+/- t/2`` (or 0 if within size) [mm]."""
+        zone = 0.0 if self.within_size else self.tolerance
+        return _zone_contributor(self.id, zone, self.sensitivity, self.distribution, self.cp)
 
 
 class Parallelism(_TranslationalCallout):
     """Parallelism to a datum, zone width ``tolerance`` [mm].
 
-    Conversion: contributor ``0 +/- tolerance/2`` along the stack direction.
+    Attributes:
+        within_size: required, no default. ``True`` when the toleranced face
+            and the datum face are the two faces of the size dimension that is
+            in the stack: the parallelism error is then contained in that size
+            tolerance and adds nothing. ``False`` when the datum is another
+            feature: the contributor is ``0 +/- tolerance/2``.
     """
 
     kind: Literal["parallelism"] = "parallelism"
     datums: DatumReferenceFrame
     distribution: Distribution = "normal"
+    within_size: bool
 
     def to_contributor(self) -> Contributor:
-        """Contributor with nominal 0, tolerance ``+/- t/2`` [mm]."""
-        return _zone_contributor(
-            self.id, self.tolerance, self.sensitivity, self.distribution, self.cp
-        )
+        """Contributor with nominal 0 and tolerance ``+/- t/2`` (or 0 if within size) [mm]."""
+        zone = 0.0 if self.within_size else self.tolerance
+        return _zone_contributor(self.id, zone, self.sensitivity, self.distribution, self.cp)
 
 
 class Position(_TranslationalCallout):
@@ -135,7 +153,8 @@ class Position(_TranslationalCallout):
 
     Along one stack direction the positional deviation is modelled as normal
     with ``+/- T/2`` at 3 sigma (``sigma = T/(6 cp)``). With MMC/LMC the zone is
-    ``T + B`` where ``B = |actual size - MMC size|`` (or LMC size).
+    ``T + B`` where the bonus ``B`` is the departure of the actual size from the
+    MMC (or LMC) size, limited to ``[0, size range]``.
     """
 
     kind: Literal["position"] = "position"
@@ -155,18 +174,33 @@ class Position(_TranslationalCallout):
             )
         return self
 
+    def _wants_smallest(self) -> bool:
+        if self.material_condition == "RFS" or self.feature is None:
+            raise ValueError("only defined for MMC / LMC callouts")
+        return (self.feature == "hole") == (self.material_condition == "MMC")
+
     def reference_size(self, size: Contributor) -> float:
         """MMC or LMC size [mm] of the feature, from its size contributor.
 
         Hole: MMC = smallest size (nominal + lower_tol), LMC = largest.
         Pin:  MMC = largest size (nominal + upper_tol), LMC = smallest.
         """
-        if self.material_condition == "RFS" or self.feature is None:
-            raise ValueError("reference_size is only defined for MMC / LMC callouts")
         smallest = size.nominal + size.lower_tol
         largest = size.nominal + size.upper_tol
-        wants_smallest = (self.feature == "hole") == (self.material_condition == "MMC")
-        return smallest if wants_smallest else largest
+        return smallest if self._wants_smallest() else largest
+
+    def bonus(self, size: Contributor, actual: FloatArray | float) -> FloatArray:
+        """Bonus tolerance [mm] for actual size(s) ``actual`` [mm].
+
+        The departure from the reference (MMC or LMC) size towards the other
+        limit, clamped to ``[0, size range]``: a part beyond its reference size
+        is out of tolerance and earns no bonus; one beyond the other limit earns
+        no more than the full size range.
+        """
+        reference = self.reference_size(size)
+        values = np.asarray(actual, dtype=np.float64)
+        departure = values - reference if self._wants_smallest() else reference - values
+        return np.clip(departure, 0.0, 2.0 * size.half_range)
 
     def to_contributor(self, size: Contributor | None = None) -> Contributor:
         """Linearised contributor for worst case and RSS.
@@ -196,34 +230,84 @@ class Position(_TranslationalCallout):
         )
 
     def bonus_sigma(self, size: Contributor) -> float:
-        """Standard deviation [mm] of the positional deviation with bonus.
+        """Standard deviation [mm] of the positional deviation with bonus (stack model).
 
         ``delta = (T + B)/(6 cp) * z`` with ``z ~ N(0,1)`` independent of the
         size, so ``sigma = sqrt(E[(T + B)^2])/(6 cp)`` and
-        ``E[(T + B)^2] = T^2 + 2 T E[B] + E[B^2]``.
+        ``E[(T + B)^2] = (T + E[B])^2 + Var[B]``.
 
-        ``B = |s - m|`` where ``m`` is a size limit, so ``s - m`` has mean
-        ``+/- t_s`` and the size's own sigma:
+        The reference size is a size limit and the size distribution is
+        symmetric about mid-tolerance, so ``E[B] = t_s`` (half the size range).
 
-        - bounded size distributions (uniform, truncated normal) never cross
-          ``m``: ``E[B] = t_s``, ``E[B^2] = t_s^2 + sigma_s^2``;
-        - a normal size is unbounded; with ``r = t_s/sigma0`` (= 3 cp of the size)
-          the folded-normal mean is
-          ``E[B] = sigma0 sqrt(2/pi) exp(-r^2/2) + t_s (1 - 2 Phi(-r))``
-          and ``E[B^2] = t_s^2 + sigma0^2``.
+        - bounded size distributions (uniform, truncated normal) are not
+          affected by the clamp: ``Var[B] = sigma_s^2``;
+        - a normal size is clipped at both limits, i.e. at ``+/- k sigma0`` with
+          ``k = t_s/sigma0`` (= 3 cp of the size):
+          ``Var[B] = sigma0^2 * ((2 Phi(k) - 1) - 2 k phi(k) + 2 k^2 Phi(-k))``.
         """
         t_s, sigma_s = size.half_range, size.sigma
-        mean_sq = t_s * t_s + sigma_s * sigma_s
+        variance = sigma_s * sigma_s
         if size.distribution == "normal" and sigma_s > 0.0:
-            r = t_s / sigma_s
-            tail = 0.5 * math.erfc(r / math.sqrt(2.0))  # Phi(-r)
-            mean_b = sigma_s * math.sqrt(2.0 / math.pi) * math.exp(-0.5 * r * r) + t_s * (
-                1.0 - 2.0 * tail
-            )
-        else:
-            mean_b = t_s
-        second_moment = self.tolerance**2 + 2.0 * self.tolerance * mean_b + mean_sq
+            k = t_s / sigma_s
+            tail = 0.5 * math.erfc(k / math.sqrt(2.0))  # Phi(-k)
+            pdf = math.exp(-0.5 * k * k) / math.sqrt(2.0 * math.pi)
+            variance *= (1.0 - 2.0 * tail) - 2.0 * k * pdf + 2.0 * k * k * tail
+        second_moment = (self.tolerance + t_s) ** 2 + variance
         return math.sqrt(second_moment) / (6.0 * self.cp)
+
+    def process_sigma(self) -> float:
+        """Positional process scatter per axis [mm]: ``T/(6 cp)`` (fixed-process model)."""
+        return self.tolerance / (6.0 * self.cp)
+
+    def reject_probability(self, size: Contributor | None = None) -> float:
+        """Probability that a part fails the position check at inspection.
+
+        Fixed-process model: the radial positional deviation ``r`` is Rayleigh
+        with ``sigma_p = T/(6 cp)`` per axis, independent of the feature size.
+        A part is rejected when ``r > (T + B)/2`` (RFS: ``B = 0``), so
+
+            P_reject = E_s[ exp(-((T + B(s))/2)^2 / (2 sigma_p^2)) ]
+
+        RFS gives ``exp(-(3 cp)^2 / 2)`` (1.11 % at cp = 1). With MMC/LMC the
+        bonus widens the acceptance zone, so the value is never higher than at
+        RFS: this is the benefit of the modifier. The expectation over the size
+        distribution is evaluated by numerical quadrature.
+
+        Args:
+            size: the size contributor; required with MMC / LMC.
+        """
+        sigma_p = self.process_sigma()
+
+        def conditional(bonus: float) -> float:
+            return math.exp(-(((self.tolerance + bonus) / 2.0) ** 2) / (2.0 * sigma_p * sigma_p))
+
+        if self.material_condition == "RFS":
+            return conditional(0.0)
+        if size is None:
+            raise ValueError(f"position '{self.id}': the size contributor is required")
+        mu, t_s = size.mean, size.half_range
+        if t_s == 0.0:
+            return conditional(float(self.bonus(size, mu)))
+        if size.distribution == "uniform":
+            dist = stats.uniform(loc=mu - t_s, scale=2.0 * t_s)
+            lo, hi = mu - t_s, mu + t_s
+        else:
+            sigma0 = t_s / (3.0 * size.cp)
+            k = 3.0 * size.cp
+            if size.distribution == "normal":
+                dist = stats.norm(loc=mu, scale=sigma0)
+                lo, hi = mu - 10.0 * sigma0, mu + 10.0 * sigma0
+            else:
+                dist = stats.truncnorm(-k, k, loc=mu, scale=sigma0)
+                lo, hi = mu - t_s, mu + t_s
+
+        def integrand(s: float) -> float:
+            return conditional(float(self.bonus(size, s))) * float(dist.pdf(s))
+
+        value, _error = integrate.quad(
+            integrand, lo, hi, points=[mu - t_s, mu, mu + t_s], epsabs=1e-13, epsrel=1e-11
+        )
+        return float(value)
 
 
 class Orientation(BaseModel):
