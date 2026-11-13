@@ -127,6 +127,7 @@ def geomtol_to_callout(
     cp: float = 1.0,
     feature: FeatureType | None = None,
     size_contributor: str | None = None,
+    within_size: bool | None = None,
 ) -> Flatness | Parallelism | Position:
     """Flatness, parallelism or position PMI as a Phase 4 callout.
 
@@ -137,6 +138,10 @@ def geomtol_to_callout(
         cp: process capability.
         feature, size_contributor: required for a position tolerance with an
             MMC or LMC modifier (see :class:`detecttol.gdt.Position`).
+        within_size: for flatness / parallelism, whether the tolerance is a
+            refinement inside a size dimension of the stack (envelope rule) and
+            therefore adds nothing. Flatness defaults to ``True``; for
+            parallelism the caller must decide (not in the PMI).
 
     Raises:
         PmiMappingError: any other tolerance type, or missing/invalid data.
@@ -156,15 +161,25 @@ def geomtol_to_callout(
     try:
         if kind == "Flatness":
             return Flatness(
-                id=cid, tolerance=float(tolerance.value), sensitivity=sensitivity, cp=cp
+                id=cid,
+                tolerance=float(tolerance.value),
+                sensitivity=sensitivity,
+                cp=cp,
+                within_size=True if within_size is None else within_size,
             )
         if frame is None:
             raise PmiMappingError(
                 f"geometric tolerance '{tolerance.name}': {kind} needs a datum reference"
             )
         if kind == "Parallelism":
+            if within_size is None:
+                raise PmiMappingError(
+                    f"geometric tolerance '{tolerance.name}': say whether this parallelism is"
+                    " inside a size dimension of the stack (within_size=True) or not"
+                )
             return Parallelism(
                 id=cid,
+                within_size=within_size,
                 tolerance=float(tolerance.value),
                 sensitivity=sensitivity,
                 cp=cp,

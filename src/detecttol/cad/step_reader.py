@@ -50,6 +50,8 @@ from OCC.Core.TopoDS import topods
 from OCC.Core.XCAFDoc import XCAFDoc_Datum, XCAFDoc_Dimension, XCAFDoc_DocumentTool
 
 from detecttol.cad._occt import silence_occt
+from detecttol.cad.pmi import FaceRef, PmiDatum, PmiDimension, PmiGeomTolerance
+from detecttol.cad.step_pmi_text import StepTextError, TextPmi, read_pmi_text
 
 Vec3 = tuple[float, float, float]
 
@@ -141,69 +143,6 @@ class PartInstance:
 
 
 @dataclass(frozen=True)
-class FaceRef:
-    """A PMI target: face ``face_index`` of the part definition ``part``."""
-
-    part: str
-    face_index: int
-
-
-@dataclass(frozen=True)
-class PmiDimension:
-    """A semantic dimension.
-
-    Attributes:
-        name: annotation name from the file (may be empty).
-        kind: OCCT dimension type, e.g. ``Size_Diameter``, ``Location_LinearDistance``.
-        value: nominal value [mm, or the file's angle unit for angular kinds].
-        upper_tol / lower_tol: signed deviations from ``value`` (``upper >= lower``),
-            or ``None`` if the dimension carries no tolerance.
-        tolerance_form: ``plus_minus``, ``range``, ``class`` (ISO fit class, not
-            converted) or ``none``.
-        targets: referenced faces (first group then second group).
-        n_first: how many of ``targets`` belong to the first group.
-    """
-
-    name: str
-    kind: str
-    value: float
-    upper_tol: float | None
-    lower_tol: float | None
-    tolerance_form: str
-    targets: tuple[FaceRef, ...]
-    n_first: int
-
-
-@dataclass(frozen=True)
-class PmiGeomTolerance:
-    """A semantic geometric tolerance.
-
-    Attributes:
-        name: annotation name from the file.
-        kind: OCCT type name, e.g. ``Flatness``, ``Position``, ``ProfileOfSurface``.
-        value: tolerance zone size [mm].
-        material_modifier: ``None`` (RFS), ``M`` (MMC) or ``L`` (LMC).
-        datums: referenced datum names, in the order OCCT returns them.
-        targets: toleranced faces.
-    """
-
-    name: str
-    kind: str
-    value: float
-    material_modifier: str | None
-    datums: tuple[str, ...]
-    targets: tuple[FaceRef, ...]
-
-
-@dataclass(frozen=True)
-class PmiDatum:
-    """A datum: its letter and the faces it is attached to."""
-
-    name: str
-    targets: tuple[FaceRef, ...]
-
-
-@dataclass(frozen=True)
 class StepModel:
     """Everything read from one STEP file.
 
@@ -212,6 +151,11 @@ class StepModel:
     per datum *reference*), so they are larger than the number of PMI items;
     ``dimensions`` holds only labels that carry data and ``datums`` is
     de-duplicated by name.
+
+    ``pmi_source`` is ``text+xcaf`` when the PMI values come from the file text
+    (complete, correctly signed, converted to mm / rad) with face links matched
+    in from XCAF, or ``xcaf`` when the text could not be interpreted and the
+    XCAF values are returned as they are (see ``notes``).
     """
 
     path: str
@@ -222,6 +166,7 @@ class StepModel:
     n_dimension_labels: int = 0
     n_datum_labels: int = 0
     notes: tuple[str, ...] = field(default_factory=tuple)
+    pmi_source: str = "xcaf"
 
     def part(self, name: str) -> PartInstance:
         """The unique part instance whose definition or instance name is ``name``."""
@@ -530,20 +475,129 @@ def read_step(path: str | Path) -> StepModel:
         )
     if len(dimension_labels) != len(dimensions):
         notes.append(
-            f"{len(dimension_labels)} XCAF dimension labels: {len(dimensions)} semantic"
-            f" dimensions, {len(with_data) - len(dimensions)} presentation-only,"
+            f"{len(dimension_labels)} XCAF dimension labels: {len(dimensions)} with a"
+            f" value, {len(with_data) - len(dimensions)} presentation-only,"
             f" {len(dimension_labels) - len(with_data)} without data"
         )
+    xcaf_datums = {
+        n: tuple(sorted(t, key=lambda r: (r.part, r.face_index))) for n, t in datums.items()
+    }
+    source = "xcaf"
+    final_dimensions: list[PmiDimension] = dimensions
+    final_geomtols: list[PmiGeomTolerance] = geomtols
+    final_datums = [PmiDatum(name=n, targets=t) for n, t in sorted(xcaf_datums.items())]
+    try:
+        text_pmi: TextPmi | None = read_pmi_text(p)
+    except (StepTextError, OSError, RecursionError) as exc:
+        text_pmi = None
+        notes.append(f"PMI could not be read from the file text ({exc}); XCAF values are used")
+    if text_pmi is not None:
+        source = "text+xcaf"
+        final_geomtols = _merge_geomtols(list(text_pmi.geometric_tolerances), geomtols)
+        final_dimensions = _merge_dimensions(list(text_pmi.dimensions), dimensions)
+        final_datums = [
+            PmiDatum(name=n, targets=xcaf_datums.get(n, ())) for n in text_pmi.datum_names
+        ]
+        unlinked_gt = sum(1 for g in final_geomtols if not g.targets)
+        unlinked_dim = sum(1 for d in final_dimensions if not d.targets)
+        unlinked_datum = sum(1 for d in final_datums if not d.targets)
+        if unlinked_gt or unlinked_dim or unlinked_datum:
+            notes.append(
+                f"no face link for {unlinked_gt} of {len(final_geomtols)} geometric tolerances,"
+                f" {unlinked_dim} of {len(final_dimensions)} dimensions and {unlinked_datum} of"
+                f" {len(final_datums)} datums (OCCT did not transfer them or links them to"
+                " non-face geometry)"
+            )
     return StepModel(
         path=str(p),
         parts=tuple(collector.parts),
-        dimensions=tuple(dimensions),
-        geometric_tolerances=tuple(geomtols),
-        datums=tuple(
-            PmiDatum(name=n, targets=tuple(sorted(t, key=lambda r: (r.part, r.face_index))))
-            for n, t in sorted(datums.items())
-        ),
+        dimensions=tuple(final_dimensions),
+        geometric_tolerances=tuple(final_geomtols),
+        datums=tuple(final_datums),
         n_dimension_labels=len(dimension_labels),
         n_datum_labels=len(datum_labels),
         notes=tuple(notes),
+        pmi_source=source,
     )
+
+
+#: Tolerance for "same value" when matching text PMI with XCAF PMI [mm or rad].
+_MATCH_TOL = 1e-9
+
+
+def _close(a: float | None, b: float | None) -> bool:
+    if a is None or b is None:
+        return a is None and b is None
+    return abs(a - b) <= _MATCH_TOL
+
+
+def _merge_geomtols(
+    text: list[PmiGeomTolerance], xcaf: list[PmiGeomTolerance]
+) -> list[PmiGeomTolerance]:
+    """Text items (authoritative values) with face links taken from XCAF items.
+
+    A text item takes the targets of the first unused XCAF item with the same
+    type and value, preferring one with the same name.
+    """
+    pool = list(xcaf)
+    out = []
+    for item in text:
+        same = [x for x in pool if x.kind == item.kind and _close(x.value, item.value)]
+        named = [x for x in same if x.name == item.name]
+        hit = (named or same or [None])[0]
+        if hit is not None:
+            pool.remove(hit)
+            item = PmiGeomTolerance(
+                name=item.name,
+                kind=item.kind,
+                value=item.value,
+                material_modifier=item.material_modifier,
+                datums=item.datums,
+                targets=hit.targets,
+            )
+        out.append(item)
+    return out
+
+
+def _merge_dimensions(text: list[PmiDimension], xcaf: list[PmiDimension]) -> list[PmiDimension]:
+    """Text dimensions with face links from XCAF dimensions of the same value.
+
+    XCAF reports angles in degrees and the lower deviation as a magnitude, so
+    values are compared in both angle units and tolerances by magnitude.
+    """
+    pool = list(xcaf)
+    out = []
+    for item in text:
+
+        def same_value(x: PmiDimension, item: PmiDimension = item) -> bool:
+            if _close(x.value, item.value):
+                return True
+            return item.unit == "rad" and _close(math.radians(x.value), item.value)
+
+        def same_tolerance(x: PmiDimension, item: PmiDimension = item) -> bool:
+            if item.upper_tol is None or x.upper_tol is None or x.lower_tol is None:
+                return True
+            scale = math.pi / 180.0 if item.unit == "rad" else 1.0
+            return _close(abs(x.upper_tol) * scale, abs(item.upper_tol)) and _close(
+                abs(x.lower_tol) * scale, abs(item.lower_tol or 0.0)
+            )
+
+        family = item.kind.split("_")[0]
+        candidates = [x for x in pool if x.kind.split("_")[0] == family and same_value(x)]
+        exact = [x for x in candidates if x.kind == item.kind and same_tolerance(x)]
+        hit = (exact or [x for x in candidates if same_tolerance(x)] or [None])[0]
+        if hit is not None:
+            pool.remove(hit)
+            item = PmiDimension(
+                name=item.name,
+                kind=item.kind,
+                value=item.value,
+                upper_tol=item.upper_tol,
+                lower_tol=item.lower_tol,
+                tolerance_form=item.tolerance_form,
+                targets=hit.targets,
+                n_first=hit.n_first,
+                unit=item.unit,
+            )
+        out.append(item)
+    return out

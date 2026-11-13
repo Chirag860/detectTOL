@@ -75,7 +75,7 @@ def test_ctc01_dimensions_match_the_file_text(ctc01: StepModel) -> None:
     """The 8 dimensions that carry a value in nist_ctc_01 (hand-read from the text):
 
     | entity | kind            | nominal (#)  | lower (#)      | upper (#)     |
-    | #33    | angle           | 60 (#30)     | -0.5 (#32)     | +0.5 (#31)    |
+    | #33    | angle (degrees) | 60 (#30)     | -0.5 (#32)     | +0.5 (#31)    |
     | #120   | diameter        | 35 (#70)     | -0.2 (#72)     | 0 (#71)       |
     | #121   | diameter        | 35 (#73)     | 0 (#75)        | +0.2 (#74)    |
     | #122   | diameter        | 20           | -0.1 (#78)     | +0.05 (#77)   |
@@ -86,6 +86,9 @@ def test_ctc01_dimensions_match_the_file_text(ctc01: StepModel) -> None:
 
     The other 4 dimension entities of the file (#24, #25, #126, #127) have no
     DIMENSIONAL_CHARACTERISTIC_REPRESENTATION, i.e. no value.
+
+    The angle is returned in radians: 60 deg = 1.0471975512, 0.5 deg = 0.0087266463.
+    Signs come from the file text (OCCT alone returns lower deviations unsigned).
     """
     got = sorted(
         (
@@ -99,7 +102,7 @@ def test_ctc01_dimensions_match_the_file_text(ctc01: StepModel) -> None:
     )
     expected = sorted(
         [
-            ("Location_Angular", 60.0, -0.5, 0.5, "plus_minus"),
+            ("Location_Angular", 1.0471975512, -0.0087266463, 0.0087266463, "plus_minus"),
             ("Size_Diameter", 35.0, -0.2, 0.0, "plus_minus"),
             ("Size_Diameter", 35.0, 0.0, 0.2, "plus_minus"),
             ("Size_Diameter", 20.0, -0.1, 0.05, "plus_minus"),
@@ -165,7 +168,8 @@ def test_ctc01_pmi_targets_point_at_real_faces(ctc01: StepModel) -> None:
 
 def test_ctc01_maps_onto_the_phase_4_models(ctc01: StepModel) -> None:
     """Mapping of real PMI: hole 35 +0.2/-0 -> contributor (mean 35.1, t 0.1);
-    flatness 0.2 -> +/-0.1; position 0.75 RFS with frame A|B|C; perpendicularity
+    flatness 0.2 -> +/-0.1 when Rule #1 does not apply;
+    position 0.75 RFS with frame A|B|C; perpendicularity
     1.5 over a caller-supplied 30 mm -> atan(1.5/30) = 0.04995840 rad.
     The two surface profiles and the angle are reported as unsupported."""
     hole = next(
@@ -177,9 +181,12 @@ def test_ctc01_maps_onto_the_phase_4_models(ctc01: StepModel) -> None:
     assert c.mean == pytest.approx(35.1) and c.half_range == pytest.approx(0.1)
 
     by_kind = {g.name: g for g in ctc01.geometric_tolerances}
-    flat = geomtol_to_callout(by_kind["Flatness.1"], cid="flat")
+    flat = geomtol_to_callout(by_kind["Flatness.1"], cid="flat", within_size=False)
     assert isinstance(flat, Flatness)
     assert flat.to_contributor().half_range == pytest.approx(0.1)
+    # Default (envelope rule): the same flatness inside a size dimension adds nothing.
+    inside = geomtol_to_callout(by_kind["Flatness.1"], cid="flat")
+    assert isinstance(inside, Flatness) and inside.to_contributor().half_range == 0.0
     pos = geomtol_to_callout(by_kind["Position.1"], cid="pos")
     assert isinstance(pos, Position)
     assert (pos.material_condition, pos.datums.labels()) == ("RFS", ("A", "B", "C"))
@@ -195,49 +202,44 @@ def test_ctc01_maps_onto_the_phase_4_models(ctc01: StepModel) -> None:
 
 
 @pytest.mark.parametrize("number", sorted(CTC))
-def test_reader_never_exceeds_or_contradicts_the_file(
+def test_reader_returns_every_pmi_item_of_the_file(
     number: int, models: dict[int, StepModel], nist_dir: Path
 ) -> None:
-    """Invariants against the OCCT-free count, for every CTC file:
-
-    - no geometric tolerance is invented: count and per-type counts are <= the file's;
-    - every datum letter exists in the file;
-    - every value is a finite positive number, every type is recognised;
-    - MMC / LMC modifier counts are <= the file's.
-    """
+    """For every CTC file the STEP reader returns exactly the PMI the file holds:
+    the same number of geometric tolerances (in total and per type), of valued
+    dimensions, of MMC / LMC modifiers, and the same datum letters, as the
+    OCCT-free counter finds in the text. Values come from the text, so they are
+    complete even where OCCT does not transfer an item."""
     model = models[number]
     text = count_pmi_entities(nist_dir / CTC[number])
-    assert len(model.geometric_tolerances) <= text.geometric_tolerances
-    kinds = Counter(g.kind for g in model.geometric_tolerances)
-    for kind, count in kinds.items():
-        assert kind in ENTITY_OF_KIND, f"unrecognised tolerance type {kind}"
-        assert count <= text.geometric_tolerance_types.get(ENTITY_OF_KIND[kind], 0), kind
-    assert {d.name for d in model.datums} <= set(text.datum_names)
-    for g in model.geometric_tolerances:
-        assert g.value == g.value and g.value > 0.0
-        assert g.material_modifier in (None, "M", "L")
-    modifiers = Counter(g.material_modifier for g in model.geometric_tolerances)
-    assert modifiers["M"] <= text.mmc_modifiers and modifiers["L"] <= text.lmc_modifiers
-    assert len(model.parts) >= 1 and all(p.faces for p in model.parts)
-
-
-@pytest.mark.parametrize("number", [1, 2, 5])
-def test_geometric_tolerances_are_complete_where_the_reader_copes(
-    number: int, models: dict[int, StepModel], nist_dir: Path
-) -> None:
-    """CTC-01, -02 and -05: the reader returns exactly as many geometric
-    tolerances of each type, and exactly the same MMC/LMC modifier counts and
-    datum letters, as the file contains. (CTC-03 and -04 each lose one
-    tolerance inside OCCT; see the phase report.)"""
-    model = models[number]
-    text = count_pmi_entities(nist_dir / CTC[number])
+    assert model.pmi_source == "text+xcaf"
     assert len(model.geometric_tolerances) == text.geometric_tolerances
+    assert len(model.dimensions) == text.dimensions_with_value
     kinds = Counter(ENTITY_OF_KIND[g.kind] for g in model.geometric_tolerances)
     for entity, count in kinds.items():
         assert count == text.geometric_tolerance_types[entity], entity
     modifiers = Counter(g.material_modifier for g in model.geometric_tolerances)
     assert (modifiers["M"], modifiers["L"]) == (text.mmc_modifiers, text.lmc_modifiers)
     assert sorted(d.name for d in model.datums) == sorted(set(text.datum_names))
+    assert len(model.parts) >= 1 and all(p.faces for p in model.parts)
+
+
+def test_face_links_are_real_and_their_absence_is_reported(models: dict[int, StepModel]) -> None:
+    """Face links come from OCCT and are incomplete on some files. Every link that
+    is returned points at an existing face, and a model with unlinked items says
+    so in its notes. CTC-01 and CTC-02 link every geometric tolerance; CTC-03 and
+    CTC-04 each have one tolerance that OCCT does not transfer (no link)."""
+    for number, model in models.items():
+        faces = {(p.name, f.index) for p in model.parts for f in p.faces}
+        unlinked = 0
+        for item in (*model.dimensions, *model.geometric_tolerances, *model.datums):
+            assert all((r.part, r.face_index) in faces for r in item.targets), number
+            unlinked += 0 if item.targets else 1
+        assert (unlinked > 0) == any("no face link" in note for note in model.notes), number
+    linked = {n: sum(1 for g in m.geometric_tolerances if g.targets) for n, m in models.items()}
+    assert (linked[1], linked[2]) == (6, 22)
+    assert linked[3] == len(models[3].geometric_tolerances) - 1
+    assert linked[4] == len(models[4].geometric_tolerances) - 1
 
 
 def test_ctc02_material_modifiers(models: dict[int, StepModel], nist_dir: Path) -> None:

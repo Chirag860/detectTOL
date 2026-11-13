@@ -90,8 +90,15 @@ def test_flatness_parallelism_and_position_callouts() -> None:
     flat = geomtol_to_callout(gt("Flatness", 0.2), cid="f", sensitivity=-1.0)
     assert isinstance(flat, Flatness) and (flat.tolerance, flat.sensitivity) == (0.2, -1.0)
 
-    par = geomtol_to_callout(gt("Parallelism", 0.06, datums=("A",)), cid="p")
+    assert flat.within_size is True  # envelope rule: default for flatness
+    additive = geomtol_to_callout(gt("Flatness", 0.2), cid="f", within_size=False)
+    assert isinstance(additive, Flatness) and additive.to_contributor().half_range == 0.1
+
+    par = geomtol_to_callout(gt("Parallelism", 0.06, datums=("A",)), cid="p", within_size=False)
     assert isinstance(par, Parallelism) and par.datums.labels() == ("A",)
+    assert par.within_size is False
+    with pytest.raises(PmiMappingError, match="say whether this parallelism"):
+        geomtol_to_callout(gt("Parallelism", 0.06, datums=("A",)), cid="p")
 
     pos = geomtol_to_callout(gt("Position", 0.75, datums=("A", "B", "C")), cid="pos", cp=1.5)
     assert isinstance(pos, Position)
