@@ -79,4 +79,22 @@ A27 (what a contact is; overlap judged on bounding boxes), A28 (chain rules: onl
 
 ## CI for this phase
 
-CI_PHASE6_RESULT
+Final local lines before the commit: `ruff check: All checks passed!`, `333 passed in 17.17s`.
+
+Commit `9923ce6` (corrections of 2026-11-13 plus Phase 6), GitHub Actions, from the GitHub API after the run completed:
+
+```
+sha=9923ce6 status=completed conclusion=success
+conda (macos-latest): completed/success
+conda (ubuntu-latest): completed/success
+conda (windows-latest): completed/success
+core-pip (macos-latest, 3.11): completed/success
+core-pip (macos-latest, 3.12): completed/success
+core-pip (ubuntu-latest, 3.11): completed/success
+core-pip (ubuntu-latest, 3.12): completed/success
+core-pip (windows-latest, 3.11): completed/success
+core-pip (windows-latest, 3.12): completed/success
+```
+
+- The three conda jobs have pythonocc, so the STEP reader, chain and end-to-end tests ran on Linux, macOS and Windows.
+- Still not confirmed: whether the tests that download the NIST archive ran or were skipped on CI (a skip is also green; the job logs need a sign-in to read). Locally on Windows they ran and passed.
