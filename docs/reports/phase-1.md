@@ -1,5 +1,7 @@
 # Phase 1 report — 1D math engine
 
+> **Superseded in part (2026-11-13).** The human-check columns, the review items and (for phases 4 and 5) several conventions and gate statements below were revised under the maintainer's delegation. Read `verification-2026-11-13.md` first.
+
 2026-11-12. Run without a stop at the Phase 0 gate, on the maintainer's instruction ("continue non stop till phase 2").
 
 ## Done

@@ -81,6 +81,22 @@ Maintainer instruction: "normal 3 sigma but implement 3d loops and then go ahead
 | D49 | Synthetic STEP files | Geometry only. No synthetic PMI | PROVISIONAL | Writing PMI created through the Python binding crashes OCCT 8.0.1 (access violation). |
 | D50 | OCCT console output | OCCT's default message printers are removed once per process | PROVISIONAL | root.md §6: no printing in library code. |
 
+## Delegated review (2026-11-13)
+
+Maintainer: "you have full access to whether mark verified for a human needed task, verify it on your own, just dont falsly verify it, make it right". Under that delegation the decisions below replace the provisional ones named. Evidence: `docs/reports/verification-2026-11-13.md`.
+
+| # | Question | Decision | Status | Replaces |
+|---|---|---|---|---|
+| D51 | Q13 — flatness / parallelism on top of size | Not added by default for a feature of size (envelope rule, ASME Y14.5-2018 5.8.1); added only with `within_size=False`. Parallelism has no default | DECIDED under delegation; source-checked | D40 |
+| D52 | Bonus for parts beyond the size limit | Clamped to [0, size range] | DECIDED under delegation; source-checked | D42 |
+| D53 | Q12 — bonus-tolerance comparison | Two tests: fixed-process reject rate goes down with the bonus; zone-fill stack failure goes up | DECIDED under delegation; arithmetic verified three ways | D41 |
+| D54 | Statistical treatment of the bonus | Zone-fill model for stacks (conservative), fixed-process model for inspection; both labelled | DECIDED under delegation; **not** verifiable from a standard (texts disagree) | — |
+| D55 | PMI source | Values from the STEP file text; face links from XCAF | DECIDED under delegation; verified on 17 NIST files | D45 |
+| D56 | "Documented counts" | The file's own content, checked by two independent implementations; NIST's expected-PMI tables were not obtainable | DECIDED under delegation; the substitution is stated, not hidden | D46 |
+| D57 | Human check of golden values | `validation/verify_golden.py`, 86 of 86 | DONE under delegation | "Human: pending" columns |
+| D58 | Angular dimensions from STEP | Returned in radians (`unit: rad`) | DECIDED | — |
+| D59 | All other PROVISIONAL decisions (D23–D24, D28–D30, D32–D37, D39, D43–D44, D47–D50) | Kept as they are | ACCEPTED under delegation | — |
+
 ## Still open (not needed until later phases)
 
 Q9 is answered (D38). Q12 (bonus-tolerance test expectation) and Q13 (flatness on top of size) are implemented provisionally as D41 and D40 and still need the maintainer or a GD&T reference.

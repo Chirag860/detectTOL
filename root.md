@@ -217,15 +217,15 @@ Phase 4: GD&T subset (gdt/)
 Support only these, each converted to contributor deviations with documented conventions:
 
 Size (± tolerance): already handled
-Flatness / parallelism: a zone of width t → translational deviation of ±t/2 along the stack direction
+Flatness / parallelism: a zone of width t → translational deviation of ±t/2 along the stack direction, but only where the envelope rule does not already contain it. For a regular feature of size whose size dimension is in the stack (ASME Y14.5-2018 5.8.1, Rule #1) the form tolerance is a refinement inside the size limits and adds nothing; this is the default for flatness. (Revised 2026-11-13 under the maintainer's delegation.)
 Perpendicularity / angularity (orientation): a zone of width t over a feature length L → angular deviation ≈ ±atan(t/L); in Phase 3 loops, also a translational effect at the point of interest
 Position (diametral zone, RFS): zone diameter T → radial deviation within T/2. In a 1D stack direction that is ±T/2. In 2D, sample uniformly within a disk of diameter T for MC, and document this choice.
-Position at MMC/LMC with bonus tolerance: bonus = |actual size − MMC size| for an MMC callout, |actual size − LMC size| for an LMC callout, where the feature's actual size is itself sampled from its size tolerance. Total zone = T + bonus.
+Position at MMC/LMC with bonus tolerance: bonus = departure of the actual size from the MMC size towards LMC for an MMC callout (from the LMC size towards MMC for an LMC callout), limited to [0, size range], where the feature's actual size is itself sampled from its size tolerance. Total zone = T + bonus.
 Datums: support simple primary/secondary/tertiary planar datum reference frames only. Document the limitations clearly.
 
 Every convention must be in ASSUMPTIONS.md with its ASME Y14.5-2018 section reference. Mark each GD&T conversion "NEEDS HUMAN REVIEW" in the phase report; the maintainer will check them against a GD&T textbook or an expert.
 
-Tests: hand-derived cases for each GD&T type, including a bonus-tolerance case compared with the RFS equivalent. (The original expectation "MC failure must be lower than RFS" was found wrong in Phase R, E9: a bonus enlarges the zone, so gap-failure goes up. The replacement expectation is open question Q12 and must be set by the maintainer before Phase 4.)
+Tests: hand-derived cases for each GD&T type, including two bonus-tolerance cases compared with the RFS equivalent (revised 2026-11-13 under the maintainer's delegation): (a) for a fixed process, the inspection reject rate with the bonus must be lower than at RFS — the sense in which the original expectation is true; (b) in the stack ("zone-fill") model, where the deviation is allowed to use the enlarged zone, the failure rate of a fixed positional limit must be higher than at RFS.
 Gate: tests pass, reviewer agrees, and the human approves the conventions.
 Phase 5: STEP AP242 reader (cad/)
 Read the assembly structure (XCAF: STEPCAFControl_Reader, XCAFDoc_ShapeTool), part transforms and B-rep faces.

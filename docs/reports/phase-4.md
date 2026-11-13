@@ -1,5 +1,7 @@
 # Phase 4 report — GD&T subset (and 3D vector loops)
 
+> **Superseded in part (2026-11-13).** The human-check columns, the review items and (for phases 4 and 5) several conventions and gate statements below were revised under the maintainer's delegation. Read `verification-2026-11-13.md` first.
+
 2026-11-13. Maintainer instruction: "normal 3 sigma but implement 3d loops and then go ahead with phase 4 and 5 without stopping".
 
 This report covers two things: the 3D extension of Phase 3, and Phase 4.

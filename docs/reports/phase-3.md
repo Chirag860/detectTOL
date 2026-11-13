@@ -1,5 +1,7 @@
 # Phase 3 report — 2D nonlinear vector loops
 
+> **Superseded in part (2026-11-13).** The human-check columns, the review items and (for phases 4 and 5) several conventions and gate statements below were revised under the maintainer's delegation. Read `verification-2026-11-13.md` first.
+
 2026-11-12. Maintainer instruction: "continue with phase 3, and choose relative angles".
 
 ## Done

@@ -1,5 +1,7 @@
 # Phase 5 report — STEP AP242 reader
 
+> **Superseded in part (2026-11-13).** The human-check columns, the review items and (for phases 4 and 5) several conventions and gate statements below were revised under the maintainer's delegation. Read `verification-2026-11-13.md` first.
+
 2026-11-13. Environment for everything below: Windows 11, conda env, Python 3.12.16, **pythonocc-core 8.0.1.2** (OCCT 8.0.1).
 
 ## Done
