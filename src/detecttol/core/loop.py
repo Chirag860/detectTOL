@@ -26,7 +26,7 @@ This module is Python-API only; angles are radians, lengths millimetres.
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Annotated, Literal
 
 import numpy as np
@@ -46,7 +46,7 @@ from detecttol.core.results import StackResult
 
 _STRICT = ConfigDict(strict=True, extra="forbid", frozen=True)
 
-VariableKind = Literal["length", "angle"]
+VariableKind = Literal["length", "angle", "pitch", "roll"]
 LoopWarningCode = Literal["ZERO_SENSITIVITY", "LINEARISATION_SUSPECT"]
 
 #: Finite-difference step rule of spec Section 3.4: h = max(FD_MIN_STEP, FD_REL_STEP * t).
@@ -166,7 +166,8 @@ class VariableDetail(BaseModel):
 
     Attributes:
         id: variable id.
-        kind: ``length`` or ``angle``.
+        kind: ``length``, ``angle`` (in-plane / yaw angle), ``pitch`` or ``roll``
+            (the last two only in 3D loops).
         unit: ``mm`` or ``rad`` (unit of nominal, tolerances and sigma).
         vector_index: 0-based index of the vector the variable belongs to.
         sensitivity_analytic: dY/dx at the means [mm/mm or mm/rad].
@@ -359,23 +360,60 @@ def analyze_loop(loop: VectorLoop) -> LoopResult:
 
     Lengths are millimetres and angles radians, in and out.
     """
-    variables = loop.variables()
-    analytic = analytic_sensitivities(loop)
-    fd = finite_difference_sensitivities(loop)
+    lengths, angles = _mean_values(loop)
+    return assemble_loop_result(
+        name=loop.name,
+        requirement=loop.requirement,
+        analysis=loop.analysis,
+        variables=loop.variables(),
+        analytic=analytic_sensitivities(loop),
+        fd=finite_difference_sensitivities(loop),
+        y_mean=loop_value(lengths, angles, loop.measure_angle, loop.requirement.constant),
+        value_with=lambda index, delta: _value_with(loop, index, delta),
+        sampler=lambda n, seed: sample_loop(loop, n, seed),
+    )
+
+
+def assemble_loop_result(
+    *,
+    name: str,
+    requirement: Requirement,
+    analysis: AnalysisConfig,
+    variables: Sequence[tuple[LoopVariable, VariableKind, int]],
+    analytic: Sequence[float],
+    fd: Sequence[float],
+    y_mean: float,
+    value_with: Callable[[int, float], float],
+    sampler: Callable[[int, int], FloatArray],
+) -> LoopResult:
+    """Build a :class:`LoopResult` from sensitivities and an exact evaluator.
+
+    Shared by the 2D and 3D loop engines.
+
+    Args:
+        name: stack name.
+        requirement: spec limits [mm]; its constant must already be in ``y_mean``,
+            ``value_with`` and the sampler output.
+        analysis: methods, Monte Carlo settings, Bender factor.
+        variables: ``(variable, kind, vector_index)`` in contributor order.
+        analytic: analytic dY/dx_i at the means [mm/mm or mm/rad].
+        fd: finite-difference estimates of the same.
+        y_mean: exact Y with every variable at its mean [mm].
+        value_with: ``value_with(i, delta)`` = exact Y with variable ``i``
+            displaced by ``delta`` (own unit) from its mean, others at their means.
+        sampler: ``sampler(n, seed)`` = ``n`` Monte Carlo samples of the exact Y [mm].
+    """
     contributors = [
         var.as_contributor(a) for (var, _k, _j), a in zip(variables, analytic, strict=True)
     ]
-    lengths, angles = _mean_values(loop)
-    y_mean = loop_value(lengths, angles, loop.measure_angle, loop.requirement.constant)
-
     result = analyze_linearised(
-        name=loop.name,
+        name=name,
         units="mm",
-        requirement=loop.requirement,
+        requirement=requirement,
         contributors=contributors,
-        analysis=loop.analysis,
+        analysis=analysis,
         mean=y_mean,
-        sampler=lambda n, seed: sample_loop(loop, n, seed),
+        sampler=sampler,
     )
 
     warnings: list[LoopWarning] = []
@@ -383,9 +421,7 @@ def analyze_loop(loop: VectorLoop) -> LoopResult:
     for i, ((var, kind, j), a, a_fd) in enumerate(zip(variables, analytic, fd, strict=True)):
         t = _half_range_of(var)
         linear_effect = abs(a) * t
-        exact_effect = max(
-            abs(_value_with(loop, i, t) - y_mean), abs(_value_with(loop, i, -t) - y_mean)
-        )
+        exact_effect = max(abs(value_with(i, t) - y_mean), abs(value_with(i, -t) - y_mean))
         details.append(
             VariableDetail(
                 id=var.id,

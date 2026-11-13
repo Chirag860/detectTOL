@@ -9,7 +9,7 @@ from typing import Any
 from jinja2 import Environment, StrictUndefined, select_autoescape
 
 from detecttol.core.results import ContributorSummary, StackResult
-from detecttol.report.model import AnyReport, LoopReport
+from detecttol.report.model import AnyReport, LoopDetails, LoopReport
 
 _DASH = "n/a"
 
@@ -108,9 +108,9 @@ _MD_TEMPLATE = """\
 {% endif %}{% endif %}{% if vloop %}
 ## Vector loop
 
-- Angle convention: relative (counter-clockwise from the previous vector; first vector from global +x)
+- Angle convention: {{ convention_text }}
 - Angles shown in: {{ vloop.angle_units }} (sensitivities of angles in mm/{{ vloop.angle_units }})
-- Measurement direction: {{ fmt(measure_angle_display) }} {{ vloop.angle_units }}
+- Measurement direction: {{ measure_text }}
 {% if vloop.mc_std_rel_diff is not none -%}
 - Monte Carlo std vs linearised sigma: {{ fmt(100 * vloop.mc_std_rel_diff, 3) }} % (sampling error about {{ fmt(100 * vloop.mc_std_rel_se, 3) }} %)
 {% endif -%}
@@ -233,9 +233,9 @@ img { max-width: 100%; }
 
 {% if vloop %}<h2>Vector loop</h2>
 <table>
-<tr><th>Angle convention</th><td>relative (counter-clockwise from the previous vector; first vector from global +x)</td></tr>
+<tr><th>Angle convention</th><td>{{ convention_text }}</td></tr>
 <tr><th>Angles shown in</th><td>{{ vloop.angle_units }} (sensitivities of angles in mm/{{ vloop.angle_units }})</td></tr>
-<tr><th>Measurement direction</th><td>{{ fmt(measure_angle_display) }} {{ vloop.angle_units }}</td></tr>
+<tr><th>Measurement direction</th><td>{{ measure_text }}</td></tr>
 {% if vloop.mc_std_rel_diff is not none %}<tr><th>Monte Carlo std vs linearised sigma</th><td>{{ fmt(100 * vloop.mc_std_rel_diff, 3) }} % (sampling error about {{ fmt(100 * vloop.mc_std_rel_se, 3) }} %)</td></tr>
 {% endif %}{% if vloop.mc_mean_shift is not none %}<tr><th>Monte Carlo mean minus Y at the means</th><td>{{ fmt(vloop.mc_mean_shift) }} mm (standard error {{ fmt(vloop.mc_mean_se) }} mm)</td></tr>
 {% endif %}</table>
@@ -274,6 +274,23 @@ _html_env = Environment(
 )
 
 
+_CONVENTION_2D = (
+    "relative (counter-clockwise from the previous vector; first vector from global +x)"
+)
+_CONVENTION_3D = (
+    "relative, 3D: each vector's frame = previous frame rotated by yaw (kind 'angle', about z),"
+    " then pitch (about y; positive tilts towards -z), then roll (about the vector's own axis)"
+)
+
+
+def _measure_text(loop: LoopDetails, f: float) -> str:
+    """Measurement direction for display: an angle (2D) or a unit vector (3D)."""
+    if loop.measure_direction is not None:
+        return "(" + ", ".join(fmt(c) for c in loop.measure_direction) + ") unit vector"
+    angle = 0.0 if loop.measure_angle is None else loop.measure_angle
+    return f"{fmt(angle * f)} {loop.angle_units}"
+
+
 def _context(report: AnyReport) -> dict[str, Any]:
     """Template variables shared by the Markdown and HTML renderers.
 
@@ -291,7 +308,8 @@ def _context(report: AnyReport) -> dict[str, Any]:
         "contributors_sorted": sorted_contributors(r),
         "vloop": None,
         "loop_rows": [],
-        "measure_angle_display": None,
+        "measure_text": "",
+        "convention_text": "",
         "fmt": fmt,
         "fmt_pct": fmt_pct,
     }
@@ -301,8 +319,8 @@ def _context(report: AnyReport) -> dict[str, Any]:
         rows = []
         loop_rows = []
         for c, v in zip(r.contributors, loop.variables, strict=True):
-            k = f if v.kind == "angle" else 1.0
-            unit = loop.angle_units if v.kind == "angle" else "mm"
+            k = 1.0 if v.kind == "length" else f
+            unit = "mm" if v.kind == "length" else loop.angle_units
             rows.append(
                 {
                     "id": c.id,
@@ -332,7 +350,11 @@ def _context(report: AnyReport) -> dict[str, Any]:
             )
         all_warnings += list(loop.warnings)
         context.update(
-            rows=rows, vloop=loop, loop_rows=loop_rows, measure_angle_display=loop.measure_angle * f
+            rows=rows,
+            vloop=loop,
+            loop_rows=loop_rows,
+            measure_text=_measure_text(loop, f),
+            convention_text=_CONVENTION_3D if loop.measure_direction else _CONVENTION_2D,
         )
     context["all_warnings"] = all_warnings
     return context

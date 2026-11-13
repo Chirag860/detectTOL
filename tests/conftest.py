@@ -12,9 +12,26 @@ from detecttol import Stack
 REPO_ROOT = Path(__file__).resolve().parents[1]
 EXAMPLES = REPO_ROOT / "examples"
 #: Vector-loop examples (schema_version 2); every other example is a linear stack.
-LOOP_EXAMPLE_NAMES = ("two_link_bracket.yaml", "wedge_height.yaml")
+LOOP_EXAMPLE_NAMES = ("tilted_post_3d.yaml", "two_link_bracket.yaml", "wedge_height.yaml")
 LINEAR_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if p.name not in LOOP_EXAMPLE_NAMES)
 LOOP_EXAMPLES = sorted(p for p in EXAMPLES.glob("*.yaml") if p.name in LOOP_EXAMPLE_NAMES)
+
+
+def analyze_any_loop(loop: Any) -> Any:
+    """Analyse a 2D or a 3D loop with the matching engine."""
+    from detecttol.core.loop import analyze_loop
+    from detecttol.core.loop3d import VectorLoop3D, analyze_loop3d
+
+    return analyze_loop3d(loop) if isinstance(loop, VectorLoop3D) else analyze_loop(loop)
+
+
+def loop_direction_kwargs(loop: Any) -> dict[str, Any]:
+    """``measure_angle`` (2D) or ``measure_direction`` (3D) for build_loop_report."""
+    from detecttol.core.loop3d import VectorLoop3D
+
+    if isinstance(loop, VectorLoop3D):
+        return {"measure_direction": [float(v) for v in loop.unit_direction()]}
+    return {"measure_angle": loop.measure_angle}
 
 
 def contributor(

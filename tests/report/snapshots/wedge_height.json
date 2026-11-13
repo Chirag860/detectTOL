@@ -224,6 +224,7 @@
   "loop": {
     "angle_units": "deg",
     "measure_angle": 1.5707963267948966,
+    "measure_direction": null,
     "variables": [
       {
         "id": "L",

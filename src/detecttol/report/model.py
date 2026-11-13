@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from importlib import resources
 from typing import Any, Literal
@@ -60,7 +61,10 @@ class LoopDetails(BaseModel):
     Attributes:
         angle_units: unit the *input file* used for angles (``deg`` or ``rad``).
             Informational: every angle in this JSON document is in radians.
-        measure_angle: absolute measurement direction [rad]; 0 = global +x.
+        measure_angle: absolute measurement direction [rad], 0 = global +x
+            (2D loops; ``None`` for a 3D loop).
+        measure_direction: unit measurement direction ``[x, y, z]`` (3D loops;
+            ``None`` for a 2D loop).
         variables: per-variable sensitivities (analytic and finite-difference),
             same order as ``result.contributors``.
         mc_std_rel_diff: ``(std_MC - sigma_linear)/sigma_linear`` or ``None``.
@@ -73,7 +77,8 @@ class LoopDetails(BaseModel):
     model_config = _FROZEN
 
     angle_units: Literal["deg", "rad"]
-    measure_angle: float
+    measure_angle: float | None
+    measure_direction: list[float] | None = None
     variables: list[VariableDetail]
     mc_std_rel_diff: float | None
     mc_std_rel_se: float | None
@@ -124,7 +129,8 @@ def build_report(
 def build_loop_report(
     loop_result: LoopResult,
     *,
-    measure_angle: float,
+    measure_angle: float | None = None,
+    measure_direction: Sequence[float] | None = None,
     angle_units: Literal["deg", "rad"],
     version: str,
     generated_at: str,
@@ -134,10 +140,14 @@ def build_loop_report(
 
     Args:
         loop_result: output of :func:`detecttol.core.loop.analyze_loop`.
-        measure_angle: absolute measurement direction [rad].
+        measure_angle: absolute measurement direction [rad] of a 2D loop.
+        measure_direction: unit measurement direction of a 3D loop. Exactly one
+            of the two must be given.
         angle_units: unit the input used for angles (display only).
         version, generated_at, input_file: as for :func:`build_report`.
     """
+    if (measure_angle is None) == (measure_direction is None):
+        raise ValueError("give exactly one of measure_angle / measure_direction")
     return LoopReport(
         tool=ToolInfo(version=version),
         generated_at=generated_at,
@@ -146,6 +156,7 @@ def build_loop_report(
         loop=LoopDetails(
             angle_units=angle_units,
             measure_angle=measure_angle,
+            measure_direction=None if measure_direction is None else list(measure_direction),
             variables=loop_result.variables,
             mc_std_rel_diff=loop_result.mc_std_rel_diff,
             mc_std_rel_se=loop_result.mc_std_rel_se,

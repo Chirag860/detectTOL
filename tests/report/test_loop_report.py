@@ -24,7 +24,7 @@ from detecttol.report import (
     to_json,
     to_markdown,
 )
-from tests.conftest import EXAMPLES, LOOP_EXAMPLES
+from tests.conftest import EXAMPLES, LOOP_EXAMPLES, analyze_any_loop, loop_direction_kwargs
 from tests.report.test_report import FIXED_TIME, FIXED_VERSION, _assert_close, _snapshot
 
 runner = CliRunner()
@@ -35,8 +35,8 @@ V2 = jsonschema.Draft202012Validator
 def loop_report_for(path: Path) -> LoopReport:
     loaded = load_loop(path)
     return build_loop_report(
-        analyze_loop(loaded.loop),
-        measure_angle=loaded.loop.measure_angle,
+        analyze_any_loop(loaded.loop),
+        **loop_direction_kwargs(loaded.loop),
         angle_units=loaded.angle_units,
         version=FIXED_VERSION,
         generated_at=FIXED_TIME,

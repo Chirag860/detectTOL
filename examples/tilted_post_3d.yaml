@@ -1,0 +1,28 @@
+# 3D vector loop (schema_version 2): height of the tip of a tilted post.
+#
+# A base arm of 30 mm along +x, then a post of 40 +/-0.05 mm that is yawed 90 deg
+# from the arm. The arm can roll about its own axis by 10 +/-0.5 deg, which
+# swings the post out of the xy-plane: tip height Z = 40 * sin(roll).
+#
+# 3D convention: each vector's frame is the previous frame rotated by
+#   angle (yaw, about z), then pitch (about y; positive tilts towards -z),
+#   then roll (about the vector's own axis).
+schema_version: 2
+units: mm
+angle_units: deg
+name: tilted_post_3d
+requirement:
+  description: height of the post tip above the base plane
+  lsl: 6.5
+  usl: 7.4
+loop:
+  measure_direction: [0, 0, 1]
+  vectors:
+    - length: 30
+      angle: 0
+      roll: {id: roll, nominal: 10.0, upper_tol: 0.5, lower_tol: -0.5}
+    - length: {id: post, nominal: 40.0, upper_tol: 0.05, lower_tol: -0.05}
+      angle: 90
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 2}

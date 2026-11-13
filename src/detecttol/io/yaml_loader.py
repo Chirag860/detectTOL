@@ -21,6 +21,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from detecttol.core.loop import LoopVariable, LoopVector, VectorLoop
+from detecttol.core.loop3d import LoopVector3D, VectorLoop3D
 from detecttol.core.models import AnalysisConfig, FiniteFloat, Requirement, Stack
 
 AngleUnit = Literal["deg", "rad"]
@@ -48,19 +49,29 @@ class LoopVectorSpec(BaseModel):
 
     length: LoopVariable | FiniteFloat
     angle: LoopVariable | FiniteFloat
+    pitch: LoopVariable | FiniteFloat | None = None
+    roll: LoopVariable | FiniteFloat | None = None
 
 
 class LoopSpec(BaseModel):
     """The ``loop`` section of a schema-version-2 file.
 
+    A loop is 3D when any vector has ``pitch`` or ``roll`` or when
+    ``measure_direction`` is given; ``angle`` is then the yaw (see
+    :mod:`detecttol.core.loop3d` for the rotation convention). Otherwise it is 2D.
+
     Attributes:
-        measure_angle: absolute measurement direction [angle_units]; 0 = global +x.
+        measure_angle: absolute measurement direction in the xy-plane
+            [angle_units]; 0 = global +x.
+        measure_direction: ``[x, y, z]`` measurement direction (any non-zero
+            length); alternative to ``measure_angle`` for 3D loops.
         vectors: the chain, in order.
     """
 
     model_config = _STRICT
 
     measure_angle: FiniteFloat = 0.0
+    measure_direction: Annotated[list[FiniteFloat], Field(min_length=3, max_length=3)] | None = None
     vectors: Annotated[list[LoopVectorSpec], Field(min_length=1)]
 
 
@@ -88,7 +99,7 @@ class LoopInput:
             only to display angles in reports the way the user entered them.
     """
 
-    loop: VectorLoop
+    loop: VectorLoop | VectorLoop3D
     angle_units: AngleUnit
 
 
@@ -171,6 +182,10 @@ def _convert_angle(value: LoopVariable | float, factor: float) -> LoopVariable |
     return float(value) * factor
 
 
+def _as_length(value: LoopVariable | float) -> LoopVariable | float:
+    return value if isinstance(value, LoopVariable) else float(value)
+
+
 def parse_loop(data: Any) -> LoopInput:
     """Validate already-parsed data (a mapping) into a vector loop.
 
@@ -182,29 +197,53 @@ def parse_loop(data: Any) -> LoopInput:
     """
     doc = _validate(LoopDocument, _require_mapping(data))
     factor = _angle_factor(doc.angle_units)
-    payload = {
+    spec = doc.loop
+    is_3d = spec.measure_direction is not None or any(
+        v.pitch is not None or v.roll is not None for v in spec.vectors
+    )
+    if spec.measure_direction is not None and spec.measure_angle != 0.0:
+        raise StackInputError(
+            ["loop.measure_direction: give measure_angle or measure_direction, not both"]
+        )
+    payload: dict[str, Any] = {
         "name": doc.name,
-        "vectors": [
-            LoopVector(
-                length=v.length if isinstance(v.length, LoopVariable) else float(v.length),
-                angle=_convert_angle(v.angle, factor),
-            )
-            for v in doc.loop.vectors
-        ],
-        "measure_angle": float(doc.loop.measure_angle) * factor,
         "requirement": doc.requirement,
         "analysis": doc.analysis,
     }
+    loop: VectorLoop | VectorLoop3D
     try:
-        loop = VectorLoop.model_validate(payload)
+        if is_3d:
+            angle = float(spec.measure_angle) * factor
+            direction = (
+                (math.cos(angle), math.sin(angle), 0.0)
+                if spec.measure_direction is None
+                else tuple(float(c) for c in spec.measure_direction)
+            )
+            payload["vectors"] = [
+                LoopVector3D(
+                    length=_as_length(v.length),
+                    yaw=_convert_angle(v.angle, factor),
+                    pitch=_convert_angle(0.0 if v.pitch is None else v.pitch, factor),
+                    roll=_convert_angle(0.0 if v.roll is None else v.roll, factor),
+                )
+                for v in spec.vectors
+            ]
+            payload["measure_direction"] = direction
+            loop = VectorLoop3D.model_validate(payload)
+        else:
+            payload["vectors"] = [
+                LoopVector(length=_as_length(v.length), angle=_convert_angle(v.angle, factor))
+                for v in spec.vectors
+            ]
+            payload["measure_angle"] = float(spec.measure_angle) * factor
+            loop = VectorLoop.model_validate(payload)
     except ValidationError as exc:
         messages = []
         for err in exc.errors():
             msg = str(err["msg"]).removeprefix("Value error, ")
-            messages.append(msg if msg.startswith("vectors") else f"loop: {msg}")
-        raise StackInputError(
-            [m.replace("vectors:", "loop.vectors:", 1) for m in messages]
-        ) from exc
+            known = msg.startswith(("vectors", "measure_direction"))
+            messages.append(f"loop.{msg}" if known else f"loop: {msg}")
+        raise StackInputError(messages) from exc
     return LoopInput(loop=loop, angle_units=doc.angle_units)
 
 

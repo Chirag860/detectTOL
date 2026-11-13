@@ -8,13 +8,14 @@ import re
 import sys
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 
 import detecttol
 from detecttol.core.analyze import analyze as run_analysis
 from detecttol.core.loop import analyze_loop
+from detecttol.core.loop3d import VectorLoop3D, analyze_loop3d
 from detecttol.io import LoopInput, StackInputError, load_input
 from detecttol.report import (
     AnyReport,
@@ -99,11 +100,18 @@ def analyze(
 
     report: AnyReport
     if isinstance(loaded, LoopInput):
-        loop_result = analyze_loop(loaded.loop)
+        if isinstance(loaded.loop, VectorLoop3D):
+            loop_result = analyze_loop3d(loaded.loop)
+            direction: dict[str, Any] = {
+                "measure_direction": [float(v) for v in loaded.loop.unit_direction()]
+            }
+        else:
+            loop_result = analyze_loop(loaded.loop)
+            direction = {"measure_angle": loaded.loop.measure_angle}
         result = loop_result.result
         report = build_loop_report(
             loop_result,
-            measure_angle=loaded.loop.measure_angle,
+            **direction,
             angle_units=loaded.angle_units,
             version=detecttol.__version__,
             generated_at=_timestamp(),

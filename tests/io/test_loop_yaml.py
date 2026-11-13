@@ -20,7 +20,7 @@ from detecttol.io import (
     parse_input,
     parse_loop,
 )
-from tests.conftest import EXAMPLES, LOOP_EXAMPLES
+from tests.conftest import EXAMPLES, LOOP_EXAMPLES, analyze_any_loop
 
 EXACT = {"rel": 1e-12, "abs": 1e-15}
 
@@ -138,7 +138,7 @@ def test_every_loop_example_loads_and_analyses(path: Path) -> None:
     loaded = load_input(path)
     assert isinstance(loaded, LoopInput)
     assert load_loop(path) == loaded
-    res = analyze_loop(loaded.loop)
+    res = analyze_any_loop(loaded.loop)
     assert res.result.monte_carlo is not None and res.variables
 
 

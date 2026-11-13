@@ -141,7 +141,7 @@
     },
     "LoopDetails": {
       "additionalProperties": false,
-      "description": "Vector-loop specific part of a version-2 report.\n\nAttributes:\n    angle_units: unit the *input file* used for angles (``deg`` or ``rad``).\n        Informational: every angle in this JSON document is in radians.\n    measure_angle: absolute measurement direction [rad]; 0 = global +x.\n    variables: per-variable sensitivities (analytic and finite-difference),\n        same order as ``result.contributors``.\n    mc_std_rel_diff: ``(std_MC - sigma_linear)/sigma_linear`` or ``None``.\n    mc_std_rel_se: approximate relative standard error of the Monte Carlo std.\n    mc_mean_shift: ``mean_MC - Y(mu)`` [mm].\n    mc_mean_se: standard error of the Monte Carlo mean [mm].\n    warnings: linearisation warnings.",
+      "description": "Vector-loop specific part of a version-2 report.\n\nAttributes:\n    angle_units: unit the *input file* used for angles (``deg`` or ``rad``).\n        Informational: every angle in this JSON document is in radians.\n    measure_angle: absolute measurement direction [rad], 0 = global +x\n        (2D loops; ``None`` for a 3D loop).\n    measure_direction: unit measurement direction ``[x, y, z]`` (3D loops;\n        ``None`` for a 2D loop).\n    variables: per-variable sensitivities (analytic and finite-difference),\n        same order as ``result.contributors``.\n    mc_std_rel_diff: ``(std_MC - sigma_linear)/sigma_linear`` or ``None``.\n    mc_std_rel_se: approximate relative standard error of the Monte Carlo std.\n    mc_mean_shift: ``mean_MC - Y(mu)`` [mm].\n    mc_mean_se: standard error of the Monte Carlo mean [mm].\n    warnings: linearisation warnings.",
       "properties": {
         "angle_units": {
           "enum": [
@@ -196,8 +196,30 @@
           "title": "Mc Std Rel Se"
         },
         "measure_angle": {
-          "title": "Measure Angle",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Measure Angle"
+        },
+        "measure_direction": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Measure Direction"
         },
         "variables": {
           "items": {
@@ -660,7 +682,7 @@
     },
     "VariableDetail": {
       "additionalProperties": false,
-      "description": "Per-variable sensitivity information.\n\nAttributes:\n    id: variable id.\n    kind: ``length`` or ``angle``.\n    unit: ``mm`` or ``rad`` (unit of nominal, tolerances and sigma).\n    vector_index: 0-based index of the vector the variable belongs to.\n    sensitivity_analytic: dY/dx at the means [mm/mm or mm/rad].\n    sensitivity_fd: central finite-difference estimate of the same.\n    fd_step: step h used [mm or rad].\n    linear_effect: ``|a_i| * t_i`` [mm].\n    exact_effect: ``max |Y(mu +/- t_i e_i) - Y(mu)|`` [mm], all other\n        variables at their means (one-at-a-time, exact function).",
+      "description": "Per-variable sensitivity information.\n\nAttributes:\n    id: variable id.\n    kind: ``length``, ``angle`` (in-plane / yaw angle), ``pitch`` or ``roll``\n        (the last two only in 3D loops).\n    unit: ``mm`` or ``rad`` (unit of nominal, tolerances and sigma).\n    vector_index: 0-based index of the vector the variable belongs to.\n    sensitivity_analytic: dY/dx at the means [mm/mm or mm/rad].\n    sensitivity_fd: central finite-difference estimate of the same.\n    fd_step: step h used [mm or rad].\n    linear_effect: ``|a_i| * t_i`` [mm].\n    exact_effect: ``max |Y(mu +/- t_i e_i) - Y(mu)|`` [mm], all other\n        variables at their means (one-at-a-time, exact function).",
       "properties": {
         "exact_effect": {
           "title": "Exact Effect",
@@ -677,7 +699,9 @@
         "kind": {
           "enum": [
             "length",
-            "angle"
+            "angle",
+            "pitch",
+            "roll"
           ],
           "title": "Kind",
           "type": "string"
