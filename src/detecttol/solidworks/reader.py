@@ -401,9 +401,15 @@ def read_solidworks(
     if path.suffix.lower() != ".sldasm":
         raise SolidWorksError(f"{path.name}: expected a SolidWorks assembly (.SLDASM)")
     com = _Com()
-    reader = _Reader(com)
+    import pythoncom  # part of pywin32; COM must be initialised in every thread that uses it
+
+    pythoncom.CoInitialize()
     try:
-        data = reader.assembly(path, [Path(d).resolve() for d in drawings], Path(step_path))
+        reader = _Reader(com)
+        try:
+            data = reader.assembly(path, [Path(d).resolve() for d in drawings], Path(step_path))
+        finally:
+            reader.close()
     finally:
-        reader.close()
+        pythoncom.CoUninitialize()
     return SolidWorksReadout(data=data, step_path=Path(step_path))

@@ -27,16 +27,17 @@ A defined, documented subset of GD&T modeling.
 Reading assemblies and semantic PMI from STEP AP242, with a YAML fallback.
 Clear reports: the gap distribution, failure rate, and which tolerances drive it.
 Non-goals (do not build these)
-A GUI (CLI and Python API only; maybe an HTML report).
+A desktop GUI or a hosted web service. (Revised 2026-11-14, maintainer-approved app plan: a local browser app, `detecttol app`, bound to 127.0.0.1, is in scope; it only displays and calls the same engine.)
 Full ASME Y14.5 coverage. Support only the subset in Phase 4.
-Native SOLIDWORKS/CATIA file readers. STEP only.
+Parsing native CAD file formats ourselves. (Revised 2026-11-14: SolidWorks files are read through a locally installed, licensed SolidWorks via its COM API, read-only; STEP stays the open route for every other CAD tool.)
 Cloud or service features.
 2. Tech stack (fixed)
 Python 3.11+
 Geometry/STEP: pythonocc-core (OCCT), installed via conda-forge. Provide environment.yml.
 Math: numpy, scipy (scipy.stats for distributions and normal CDF)
 Data models: pydantic v2 (strict validation)
-CLI: typer
+CLI: typer; local app: nicegui (optional extra)
+SolidWorks access: pywin32 (optional extra, Windows only)
 Reports: matplotlib (histograms), jinja2 (HTML/Markdown)
 Testing: pytest, hypothesis (property-based), pytest-cov
 Quality: ruff (lint and format), mypy --strict on src/detecttol/core

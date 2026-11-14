@@ -70,6 +70,30 @@ works out each sign itself. It stops with an explanation if the parts do not
 touch, if there are two possible chains, or if a contact is not flat.
 Tolerances are **not** yet taken from PMI in the STEP file automatically.
 
+## The app (no command line needed after start)
+
+```bash
+detecttol app
+```
+
+Your browser opens at `http://127.0.0.1:8765` (this PC only; nothing is uploaded).
+
+1. **Open a model**: browse to a folder, tick any drawings (`.SLDDRW`) to read too,
+   and click the `.SLDASM` (read through SolidWorks, about 20 s) or `.step`.
+2. **Choose the requirement**: click face 1 and face 2 in the 3D view, or pick them
+   from the lists (each entry shows the tolerances found on that face). Set the
+   limits, the drawing standard (IS / ISO / ASME) and the general tolerance class.
+3. **Check the chain**: every dimension with where its tolerance comes from
+   (DimXpert, drawing, IS 2102 general tolerance, or you). Yellow cells can be
+   edited; a dimension with no tolerance at all must be filled before analysing.
+4. **Analyse**: a plain-words verdict, worst case, RSS, Monte Carlo, the biggest
+   contributors, the histogram, and a downloadable HTML report.
+
+**Save project** writes `<model>.dtol` next to the model; open it from the same
+folder browser later (the model is re-read, so CAD changes are picked up).
+Needs the conda environment plus `conda install nicegui` (and `pywin32` for
+SolidWorks).
+
 ## Straight from SolidWorks (no YAML)
 
 On a Windows PC with SolidWorks installed (tested: SOLIDWORKS 2026), detectTOL

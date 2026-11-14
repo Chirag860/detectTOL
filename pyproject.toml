@@ -33,6 +33,8 @@ dev = [
 ]
 # Reading SolidWorks files drives a locally installed, licensed SolidWorks (Windows only).
 solidworks = ["pywin32>=306; sys_platform == 'win32'"]
+# The local browser app (`detecttol app`).
+app = ["nicegui>=4.0"]
 
 [project.scripts]
 detecttol = "detecttol.cli.main:app"
@@ -73,6 +75,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "src/detecttol/cli/*" = ["B008"] # typer uses function calls in defaults
 "src/detecttol/report/render.py" = ["E501"] # report templates have long table rows
+"src/detecttol/app/ui.py" = ["E501"] # page layout: long UI strings and class lists
 "tests/*" = ["B008"] # hypothesis strategies as argument defaults
 "validation/*" = ["T201"] # stand-alone scripts report on stdout
 

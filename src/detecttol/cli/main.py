@@ -166,6 +166,26 @@ def faces(
     typer.echo("\n".join(lines))
 
 
+@app.command("app")
+def app_command(
+    port: Annotated[int, typer.Option(help="Local port.")] = 8765,
+    no_browser: Annotated[
+        bool, typer.Option("--no-browser", help="Do not open a browser.")
+    ] = False,
+) -> None:
+    """Start the detectTOL app in your browser (this PC only, http://127.0.0.1:PORT).
+
+    Open a SolidWorks assembly or a STEP file, click two faces, check the chain table
+    and press Analyse. Needs pythonocc-core and nicegui (and pywin32 for SolidWorks).
+    """
+    try:
+        from detecttol.app.ui import main as run_app
+    except ImportError as exc:
+        typer.echo(f"error: the app needs nicegui and pythonocc-core ({exc})", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    run_app(port=port, show=not no_browser)
+
+
 @app.command("analyze-cad")
 def analyze_cad(
     cad_file: Annotated[

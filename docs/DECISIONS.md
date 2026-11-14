@@ -105,6 +105,9 @@ Maintainer: "you have full access to whether mark verified for a human needed ta
 | D66 | Default requirement in `analyze-cad` | `lsl = 0` (gap ≥ 0) when neither limit is given | PROVISIONAL | The most common requirement; the report always prints the limits used. |
 | D67 | Missing tolerance in a CAD chain | General class if given, else stop (A38) | DECIDED (maintainer chose "ask in a table" for the app) | — |
 | D68 | ISO 2768 class stored in a SolidWorks part | Not read; the class is asked for (`--general`) | PROVISIONAL, open | `GetBlockTolerances` fails and the preference value is ambiguous (phase-app-1). |
+| D69 | App defaults | Drawing standard IS, general tolerance class m, LSL 0 (gap >= 0), 100 000 Monte Carlo samples, seed 42; all visible and editable on the page | PROVISIONAL | Maintainer works to Indian Standards; the general class pre-fills untoleranced rows as the maintainer chose ("ask in a table", pre-filled). |
+| D70 | Choosing faces | Click in the 3D view **or** pick from lists that show each face's direction, position and the tolerances found on it | DECIDED | Faces touching across a small gap are often hidden in 3D; the list is the reliable way, the 3D view the quick one. |
+| D71 | Project file | `<model>.dtol` (JSON) next to the model: file paths, faces, limits, standard, class, typed values; the model is re-read on open | PROVISIONAL | CAD changes are picked up; nothing derived is stored. |
 
 ## Still open (not needed until later phases)
 

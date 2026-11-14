@@ -19,7 +19,7 @@ size; ISO / IS: adds +/- t/2 unless the envelope requirement applies).
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -66,6 +66,7 @@ class CadStack:
         chain: how it was built.
         cad: the CAD input it was built from.
         notes: how the chain used the model (e.g. combined dimensions).
+        needs_value: chain dimensions still waiting for a tolerance (placeholder mode).
     """
 
     stack: Stack
@@ -73,9 +74,20 @@ class CadStack:
     chain: Chain
     cad: CadInput
     notes: tuple[str, ...] = ()
+    needs_value: tuple[MissingDimension, ...] = ()
 
     def analyze(self) -> StackResult:
-        """Worst case / RSS / Monte Carlo as configured (with GD&T if any)."""
+        """Worst case / RSS / Monte Carlo as configured (with GD&T if any).
+
+        Raises:
+            CadStackError: a chain dimension still has no tolerance (``needs_value``).
+        """
+        if self.needs_value:
+            listed = ", ".join(
+                f"{m.part} faces {m.from_face}-{m.to_face} ({m.nominal:g} mm)"
+                for m in self.needs_value
+            )
+            raise CadStackError(f"enter a tolerance first for: {listed}")
         return analyze_gdt(self.gdt) if self.gdt is not None else analyze(self.stack)
 
 
@@ -197,20 +209,58 @@ def build_cad_stack(
     name: str = "cad_stack",
     description: str = "",
     analysis: AnalysisConfig | None = None,
+    overrides: Mapping[MissingKey, tuple[float, float]] | None = None,
+    placeholder_missing: bool = False,
 ) -> CadStack:
     """Build the stack between two faces of ``cad``.
 
+    A chain dimension without a CAD tolerance takes, in this order: the user's value
+    from ``overrides`` (keyed by :func:`missing_key`), the general class, or — with
+    ``placeholder_missing`` — a zero tolerance listed in ``CadStack.needs_value``
+    (the app shows those as empty cells and does not analyse until they are filled).
+
     Raises:
         CadStackError: no path, ambiguity, a missing tolerance without a general
-            class, or an invalid requirement.
+            class (unless ``placeholder_missing``), or an invalid requirement.
     """
     from detecttol.cad.chain import ChainError
 
     if lsl is None and usl is None:
         raise CadStackError("give at least one of lsl / usl")
 
+    needs_value: list[MissingDimension] = []
+
+    def blank(
+        missing: MissingDimension, upper: float, lower: float, source: str
+    ) -> ResolvedDimension:
+        return ResolvedDimension(
+            id=f"{missing.part}:faces_{missing.from_face}_{missing.to_face}",
+            nominal=missing.nominal,
+            upper_tol=upper,
+            lower_tol=lower,
+            distribution="normal",
+            cp=1.0,
+            from_face=FaceRef(missing.part, missing.from_face),
+            to_face=FaceRef(missing.part, missing.to_face),
+            direction=(0.0, 0.0, 0.0),
+            tolerance_source=source,
+        )
+
     def fill(missing: MissingDimension) -> ResolvedDimension | None:
+        key = missing_key(missing)
+        if overrides and key in overrides:
+            upper, lower = overrides[key]
+            if upper < lower:
+                raise CadStackError(
+                    f"{missing.part} faces {key[1]}-{key[2]}: upper {upper} < lower {lower}"
+                )
+            return blank(
+                missing, upper, lower, "entered by the user (no tolerance in the CAD model)"
+            )
         if general_class is None:
+            if placeholder_missing:
+                needs_value.append(missing)
+                return blank(missing, 0.0, 0.0, "NEEDS A VALUE (no tolerance in the CAD model)")
             return None
         try:
             d = general.general_deviation(missing.nominal, general_class)
@@ -270,7 +320,19 @@ def build_cad_stack(
         callouts.append(callout)
     gdt = GdtStack(stack=stack, callouts=callouts, standard=standard) if callouts else None
     notes = tuple(combined)
-    return CadStack(stack=stack, gdt=gdt, chain=chain, cad=cad, notes=notes)
+    return CadStack(
+        stack=stack, gdt=gdt, chain=chain, cad=cad, notes=notes, needs_value=tuple(needs_value)
+    )
+
+
+#: ``(part, lower face index, higher face index)``: a missing dimension, either direction.
+MissingKey = tuple[str, int, int]
+
+
+def missing_key(missing: MissingDimension) -> MissingKey:
+    """Direction-independent key of a missing dimension (for user overrides)."""
+    a, b = sorted((missing.from_face, missing.to_face))
+    return (missing.part, a, b)
 
 
 def _chain_faces(
