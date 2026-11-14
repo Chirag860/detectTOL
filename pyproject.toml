@@ -31,6 +31,10 @@ dev = [
     "types-PyYAML",
     "pre-commit",
 ]
+# Reading SolidWorks files drives a locally installed, licensed SolidWorks (Windows only).
+solidworks = ["pywin32>=306; sys_platform == 'win32'"]
+# The local browser app (`detecttol app`).
+app = ["nicegui>=4.0"]
 
 [project.scripts]
 detecttol = "detecttol.cli.main:app"
@@ -44,6 +48,9 @@ detecttol = ["py.typed", "report/schema/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    "solidworks: needs a licensed SOLIDWORKS 2026 and pywin32; runs only with DETECTTOL_SOLIDWORKS=1",
+]
 
 [tool.coverage.run]
 source = ["detecttol"]
@@ -53,6 +60,7 @@ branch = true
 line-length = 100
 target-version = "py311"
 src = ["src", "tests"]
+extend-exclude = ["tools/solidworks_spike"]  # throwaway feasibility scripts, see its README
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "N", "SIM", "RUF", "T20"]
@@ -67,6 +75,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "src/detecttol/cli/*" = ["B008"] # typer uses function calls in defaults
 "src/detecttol/report/render.py" = ["E501"] # report templates have long table rows
+"src/detecttol/app/ui.py" = ["E501"] # page layout: long UI strings and class lists
 "tests/*" = ["B008"] # hypothesis strategies as argument defaults
 "validation/*" = ["T201"] # stand-alone scripts report on stdout
 

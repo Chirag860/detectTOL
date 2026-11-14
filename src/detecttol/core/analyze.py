@@ -127,6 +127,14 @@ def analyze_linearised(
         for i, c in enumerate(contributors)
     ]
 
+    from_cad = [c for c in contributors if c.cad_source is not None]
+    if from_cad:
+        warn(
+            "TOLERANCE_FROM_CAD",
+            "Tolerances read from the CAD model: "
+            + "; ".join(f"{c.id}: {c.cad_source}" for c in from_cad)
+            + ".",
+        )
     from_table = [c for c in contributors if c.tolerance_source is not None]
     if from_table:
         warn(

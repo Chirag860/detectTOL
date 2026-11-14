@@ -291,6 +291,8 @@ class _Collector:
         # lookup with IsSame; keyed by label because names need not be unique.
         self.prototypes: list[tuple[TDF_Label, str, list[Any]]] = []
         self.n_faceless = 0
+        # placed shape of each entry of ``parts`` (same order), for meshing
+        self.placed: list[Any] = []
 
     def walk(self, label: TDF_Label, location: TopLoc_Location, path: tuple[str, ...]) -> None:
         tool = self.shape_tool
@@ -318,6 +320,7 @@ class _Collector:
         if not any(known.IsEqual(definition) for known, _n, _f in self.prototypes):
             self.prototypes.append((definition, name, definition_faces))
         placed = shape.Moved(location)
+        self.placed.append(placed)
         translation, rotation = _placement(location)
         self.parts.append(
             PartInstance(
@@ -426,16 +429,8 @@ def _read_geomtol(dimtol: Any, collector: _Collector, label: TDF_Label) -> PmiGe
     )
 
 
-def read_step(path: str | Path) -> StepModel:
-    """Read a STEP file: parts, faces and semantic PMI.
-
-    Args:
-        path: ``.step`` / ``.stp`` file. Lengths are returned in millimetres.
-
-    Raises:
-        StepReadError: the file does not exist, cannot be parsed, or holds no shape.
-    """
-    p = Path(path)
+def _load(p: Path) -> tuple[Any, _Collector]:
+    """Open and transfer a STEP file, and walk its assembly tree."""
     if not p.is_file():
         raise StepReadError(f"STEP file not found: {p}")
     silence_occt()
@@ -447,14 +442,37 @@ def read_step(path: str | Path) -> StepModel:
         raise StepReadError(f"not a readable STEP file: {p}")
     if not reader.Transfer(document):
         raise StepReadError(f"STEP file could not be transferred: {p}")
-
     shape_tool = XCAFDoc_DocumentTool.ShapeTool(document.Main())
-    dimtol = XCAFDoc_DocumentTool.DimTolTool(document.Main())
     collector = _Collector(shape_tool)
     for free in _labels(shape_tool.GetFreeShapes):
         collector.walk(free, TopLoc_Location(), ())
     if not collector.parts:
         raise StepReadError(f"STEP file contains no shape: {p}")
+    return document, collector
+
+
+def placed_part_faces(path: str | Path) -> list[tuple[str, list[Any]]]:
+    """``(part name, faces)`` per part instance, faces placed in the assembly and in the
+    same ``TopExp_Explorer`` order as :func:`read_step` (so face indices agree)."""
+    _document, collector = _load(Path(path))
+    return [
+        (part.name, _faces_of(shape))
+        for part, shape in zip(collector.parts, collector.placed, strict=True)
+    ]
+
+
+def read_step(path: str | Path) -> StepModel:
+    """Read a STEP file: parts, faces and semantic PMI.
+
+    Args:
+        path: ``.step`` / ``.stp`` file. Lengths are returned in millimetres.
+
+    Raises:
+        StepReadError: the file does not exist, cannot be parsed, or holds no shape.
+    """
+    p = Path(path)
+    document, collector = _load(p)
+    dimtol = XCAFDoc_DocumentTool.DimTolTool(document.Main())
 
     dimension_labels = _labels(dimtol.GetDimensionLabels)
     with_data = [

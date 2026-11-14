@@ -20,6 +20,7 @@ Reported, not solved: no path, several paths, non-planar contacts.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from detecttol.cad.annotations import ResolvedDimension
@@ -96,9 +97,30 @@ class Chain:
     path: tuple[str, ...]
     links: tuple[ChainLink, ...]
     unsupported_contacts: tuple[str, ...]
+    filled: tuple[MissingDimension, ...] = ()
 
     def contributors(self) -> list[Contributor]:
         return [link.contributor for link in self.links]
+
+
+@dataclass(frozen=True)
+class MissingDimension:
+    """A dimension the chain needs but no annotation supplies.
+
+    Attributes:
+        part: part name.
+        from_face / to_face: face indices inside the part, in chain order.
+        nominal: distance between the two faces measured on the model [mm].
+    """
+
+    part: str
+    from_face: int
+    to_face: int
+    nominal: float
+
+
+#: Called for each missing dimension; returns its tolerance or ``None`` to refuse.
+FillMissing = Callable[[MissingDimension], ResolvedDimension | None]
 
 
 def _dot(a: Vec3, b: Vec3) -> float:
@@ -187,8 +209,15 @@ def build_chain(
     *,
     direction: Vec3 | None = None,
     tol: float = CONTACT_TOL_MM,
+    fill_missing: FillMissing | None = None,
 ) -> Chain:
     """Dimension chain from ``face_from`` to ``face_to``.
+
+    Inside each part the chain needs the distance between its entry and exit
+    faces. It uses, in this order: a dimension on exactly those two faces; else
+    the one combination of the part's dimensions that leads from one to the other
+    (e.g. A->B and B->C for A->C; each becomes a contributor); else
+    ``fill_missing``.
 
     Args:
         model: the STEP model.
@@ -197,10 +226,13 @@ def build_chain(
         direction: measurement direction; default: the outward normal of
             ``face_from``. Both faces must be perpendicular to it.
         tol: contact tolerance [mm].
+        fill_missing: supplies a tolerance for a dimension no annotation covers
+            (e.g. a general tolerance); ``None`` or a ``None`` result refuses.
 
     Raises:
         ChainError: non-planar or non-perpendicular face, no path, several
-            paths, or a chain dimension without a tolerance annotation.
+            paths, several ways to combine a part's dimensions, or a chain
+            dimension without a tolerance.
     """
     start = _part_index(model, face_from)
     goal = _part_index(model, face_to)
@@ -274,23 +306,15 @@ def build_chain(
         if dim.from_face.part == dim.to_face.part
     }
     links: list[tuple[int, ChainLink]] = []
-    for part, entry, exit_face in paths[0]:
-        signed = round(position(part, exit_face) - position(part, entry), NOMINAL_DECIMALS)
-        if entry == exit_face or signed == 0.0:
-            continue
-        part_obj: PartInstance = model.parts[part]
-        key = (part_obj.name, frozenset((entry, exit_face)))
-        if key not in order:
-            raise ChainError(
-                f"no tolerance for the dimension of '{part_obj.name}' between faces {entry}"
-                f" and {exit_face} (nominal {abs(signed):.9g} mm): add a dimension annotation"
-                " on these two faces"
-            )
-        dim = dimensions[order[key]]
+    filled: list[MissingDimension] = []
+
+    def link(k: int, dim: ResolvedDimension, part: int, a: int, b: int) -> tuple[int, ChainLink]:
+        signed = round(position(part, b) - position(part, a), NOMINAL_DECIMALS)
+        name = model.parts[part].name
         if abs(dim.nominal - abs(signed)) > 10 ** (-NOMINAL_DECIMALS + 2):
             raise ChainError(
                 f"annotation '{dim.id}' measures {dim.nominal:.9g} mm but the chain needs"
-                f" {abs(signed):.9g} mm between faces {entry} and {exit_face} of '{part_obj.name}'"
+                f" {abs(signed):.9g} mm between faces {a} and {b} of '{name}'"
             )
         contributor = Contributor(
             id=dim.id,
@@ -302,8 +326,44 @@ def build_chain(
             cp=dim.cp,
             tolerance_source=dim.tolerance_source,
             tolerance_verified=dim.tolerance_verified,
+            cad_source=dim.cad_source,
         )
-        links.append((order[key], ChainLink(part_obj.name, entry, exit_face, signed, contributor)))
+        return k, ChainLink(name, a, b, signed, contributor)
+
+    for part, entry, exit_face in paths[0]:
+        signed = round(position(part, exit_face) - position(part, entry), NOMINAL_DECIMALS)
+        if entry == exit_face or signed == 0.0:
+            continue
+        part_obj: PartInstance = model.parts[part]
+        key = (part_obj.name, frozenset((entry, exit_face)))
+        if key in order:
+            k = order[key]
+            links.append(link(k, dimensions[k], part, entry, exit_face))
+            continue
+        combined = _dimension_paths(model, part, entry, exit_face, dimensions, d)
+        if len(combined) == 1:
+            for k, a, b in combined[0]:
+                links.append(link(k, dimensions[k], part, a, b))
+            continue
+        if len(combined) > 1:
+            listed = [
+                " + ".join(f"{dimensions[k].id}[{a}>{b}]" for k, a, b in path)
+                for path in combined[:_MAX_PATHS_LISTED]
+            ]
+            raise ChainError(
+                f"'{part_obj.name}' between faces {entry} and {exit_face}: {len(combined)} ways"
+                " to combine its dimensions, the tool cannot choose: " + "; ".join(listed)
+            )
+        missing = MissingDimension(part_obj.name, entry, exit_face, abs(signed))
+        dim = fill_missing(missing) if fill_missing is not None else None
+        if dim is None:
+            raise ChainError(
+                f"no tolerance for the dimension of '{part_obj.name}' between faces {entry}"
+                f" and {exit_face} (nominal {abs(signed):.9g} mm): add a dimension annotation"
+                " on these two faces"
+            )
+        filled.append(missing)
+        links.append(link(len(dimensions) + len(filled), dim, part, entry, exit_face))
 
     nominal = round(_dot(f_to.centroid, d) - _dot(f_from.centroid, d), NOMINAL_DECIMALS)
     ordered = tuple(link for _k, link in sorted(links, key=lambda pair: pair[0]))
@@ -319,4 +379,47 @@ def build_chain(
         path=tuple(names[p] for p, _a, _b in paths[0]),
         links=ordered,
         unsupported_contacts=tuple(unsupported),
+        filled=tuple(filled),
     )
+
+
+def _dimension_paths(
+    model: StepModel,
+    part: int,
+    entry: int,
+    exit_face: int,
+    dimensions: list[ResolvedDimension],
+    d: Vec3,
+) -> list[list[tuple[int, int, int]]]:
+    """Ways to reach ``exit_face`` from ``entry`` with dimensions of one part.
+
+    A graph whose nodes are the part's faces and whose edges are its dimensions
+    between two faces perpendicular to ``d``. Returns every simple path as a list of
+    ``(dimension index, from face, to face)``.
+    """
+    name = model.parts[part].name
+    faces = model.parts[part].faces
+    edges: dict[int, list[tuple[int, int]]] = {}
+    for k, dim in enumerate(dimensions):
+        if dim.from_face.part != name or dim.to_face.part != name:
+            continue
+        a, b = dim.from_face.face_index, dim.to_face.face_index
+        normals = (faces[a].normal, faces[b].normal)
+        if any(n is None or 1.0 - abs(_dot(n, d)) > PARALLEL_TOL for n in normals):
+            continue
+        edges.setdefault(a, []).append((k, b))
+        edges.setdefault(b, []).append((k, a))
+    found: list[list[tuple[int, int, int]]] = []
+
+    def walk(face: int, seen: frozenset[int], steps: list[tuple[int, int, int]]) -> None:
+        if len(found) > _MAX_PATHS_LISTED:
+            return
+        if face == exit_face:
+            found.append(steps)
+            return
+        for k, nxt in edges.get(face, []):
+            if nxt not in seen:
+                walk(nxt, seen | {nxt}, [*steps, (k, face, nxt)])
+
+    walk(entry, frozenset({entry}), [])
+    return found

@@ -23,6 +23,7 @@ WarningCode = Literal[
     "STANDARD_ASSUMED",
     "TOLERANCE_FROM_TABLE",
     "TABLE_NOT_VERIFIED",
+    "TOLERANCE_FROM_CAD",
 ]
 
 

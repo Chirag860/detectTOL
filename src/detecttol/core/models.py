@@ -43,6 +43,9 @@ class Contributor(BaseModel):
             loaders, reported as a ``TOLERANCE_FROM_TABLE`` warning.
         tolerance_verified: False when that table has not been checked against
             a printed copy of the standard (``TABLE_NOT_VERIFIED`` warning).
+        cad_source: where the tolerance was read in a CAD model (e.g. a
+            SolidWorks DimXpert annotation or STEP PMI); ``None`` otherwise.
+            Reported as a ``TOLERANCE_FROM_CAD`` warning.
     """
 
     model_config = _STRICT
@@ -56,6 +59,7 @@ class Contributor(BaseModel):
     cp: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 1.0
     tolerance_source: str | None = None
     tolerance_verified: bool = True
+    cad_source: str | None = None
 
     @model_validator(mode="after")
     def _check_tolerance_order(self) -> Contributor:

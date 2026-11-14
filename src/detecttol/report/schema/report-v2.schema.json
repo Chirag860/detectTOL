@@ -15,7 +15,8 @@
             "MC_ZERO_FAILURES",
             "STANDARD_ASSUMED",
             "TOLERANCE_FROM_TABLE",
-            "TABLE_NOT_VERIFIED"
+            "TABLE_NOT_VERIFIED",
+            "TOLERANCE_FROM_CAD"
           ],
           "title": "Code",
           "type": "string"
