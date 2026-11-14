@@ -14,6 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Distribution = Literal["normal", "uniform", "truncated_normal"]
 Method = Literal["worst_case", "rss", "monte_carlo"]
+#: Drawing standard a stack's tolerances follow (see :mod:`detecttol.standards`):
+#: ``asme`` (ASME Y14.5, envelope principle), ``iso`` (ISO 8015, independency)
+#: or ``is`` (Indian Standards, IS 12160 = ISO 8015: same rules as ``iso``).
+DrawingStandard = Literal["asme", "iso", "is"]
 
 FiniteFloat = Annotated[float, Field(allow_inf_nan=False)]
 
@@ -33,6 +37,12 @@ class Contributor(BaseModel):
         distribution: ``normal`` (default), ``uniform`` or ``truncated_normal``.
         cp: process capability Cp (> 0, default 1.0). Used by ``normal`` and
             ``truncated_normal`` only; ignored for ``uniform``.
+        tolerance_source: where the tolerance came from when it was looked up
+            in a standard's table (e.g. an ISO 286 class or an IS 2102 general
+            tolerance); ``None`` when it was given directly. Set by the input
+            loaders, reported as a ``TOLERANCE_FROM_TABLE`` warning.
+        tolerance_verified: False when that table has not been checked against
+            a printed copy of the standard (``TABLE_NOT_VERIFIED`` warning).
     """
 
     model_config = _STRICT
@@ -44,6 +54,8 @@ class Contributor(BaseModel):
     sensitivity: FiniteFloat
     distribution: Distribution = "normal"
     cp: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 1.0
+    tolerance_source: str | None = None
+    tolerance_verified: bool = True
 
     @model_validator(mode="after")
     def _check_tolerance_order(self) -> Contributor:
@@ -162,13 +174,19 @@ class AnalysisConfig(BaseModel):
 
 
 class Stack(BaseModel):
-    """A complete linear tolerance stack: Y = constant + sum(a_i * x_i)."""
+    """A complete linear tolerance stack: Y = constant + sum(a_i * x_i).
+
+    ``standard`` names the drawing standard (``None`` = not stated). It does not
+    change plus/minus stack math; it is echoed in the result and decides how
+    GD&T callouts are converted (:mod:`detecttol.gdt`).
+    """
 
     model_config = _STRICT
 
     schema_version: Literal[1]
     units: Literal["mm"]
     name: Annotated[str, Field(min_length=1)]
+    standard: DrawingStandard | None = None
     requirement: Requirement
     contributors: Annotated[list[Contributor], Field(min_length=1)]
     analysis: AnalysisConfig = AnalysisConfig()

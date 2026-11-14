@@ -9,6 +9,7 @@
   "result": {
     "name": "plate_stack_in_slot",
     "units": "mm",
+    "standard": null,
     "description": "gap between top plate and slot ceiling",
     "lsl": 0.0,
     "usl": null,

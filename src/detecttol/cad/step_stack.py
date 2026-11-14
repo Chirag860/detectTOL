@@ -5,6 +5,8 @@ File format (``schema_version: 3``)::
     schema_version: 3
     units: mm
     name: plate_stack_from_step
+    standard: is                         # optional: asme | iso | is
+    general_tolerance: m                 # optional: IS 2102 / ISO 2768-1 class
     step_file: plate_stack.step          # relative to this YAML file
     requirement:
       description: gap between top plate and slot ceiling
@@ -45,7 +47,13 @@ from detecttol.cad.annotations import (
 )
 from detecttol.cad.chain import CONTACT_TOL_MM, Chain, ChainError, build_chain
 from detecttol.cad.step_reader import StepModel, StepReadError, read_step
-from detecttol.core.models import AnalysisConfig, FiniteFloat, Requirement, Stack
+from detecttol.core.models import (
+    AnalysisConfig,
+    DrawingStandard,
+    FiniteFloat,
+    Requirement,
+    Stack,
+)
 from detecttol.io.yaml_loader import StackInputError
 
 _STRICT = ConfigDict(strict=True, extra="forbid", frozen=True, populate_by_name=True)
@@ -72,6 +80,8 @@ class StepStackDocument(BaseModel):
     schema_version: Literal[3]
     units: Literal["mm"]
     name: Annotated[str, Field(min_length=1)]
+    standard: DrawingStandard | None = None
+    general_tolerance: Literal["f", "m", "c", "v"] | None = None
     step_file: Annotated[str, Field(min_length=1)]
     requirement: StepRequirement
     annotations: Annotated[list[Annotation], Field(min_length=1)]
@@ -144,7 +154,12 @@ def build_step_stack(data: Any, base_dir: str | Path = ".") -> StepStack:
     try:
         resolved = resolve_annotations(
             model,
-            AnnotationFile(schema_version=1, units="mm", annotations=list(doc.annotations)),
+            AnnotationFile(
+                schema_version=1,
+                units="mm",
+                general_tolerance=doc.general_tolerance,
+                annotations=list(doc.annotations),
+            ),
         )
         ref_from, _f = _match(model, doc.requirement.from_face, "requirement.from", 1e-6)
         ref_to, _t = _match(model, doc.requirement.to_face, "requirement.to", 1e-6)
@@ -174,6 +189,7 @@ def build_step_stack(data: Any, base_dir: str | Path = ".") -> StepStack:
             schema_version=1,
             units="mm",
             name=doc.name,
+            standard=doc.standard,
             requirement=Requirement(
                 description=_describe(doc.requirement.description, chain),
                 lsl=doc.requirement.lsl,

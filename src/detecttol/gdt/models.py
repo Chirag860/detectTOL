@@ -2,12 +2,16 @@
 
 Supported, and nothing else (docs/ASSUMPTIONS.md A17-A22):
 
-- Flatness / parallelism, zone width ``t``. For a regular feature of size the
-  envelope rule (ASME Y14.5-2018 5.8.1, Rule #1) already keeps form inside the
-  size limits, so by default (``within_size=True``) the callout adds **no**
-  variation to a stack through that size. With ``within_size=False`` (Rule #1
-  does not apply: independency, stock, free state, or the surface is not part
-  of the size dimension in the stack) it adds a contributor ``0 +/- t/2``.
+- Flatness / parallelism, zone width ``t``. Under ASME, for a regular feature of
+  size the envelope rule (ASME Y14.5-2018 5.8.1, Rule #1) already keeps form
+  inside the size limits, so by default (``within_size=True``) the callout adds
+  **no** variation to a stack through that size. With ``within_size=False``
+  (Rule #1 does not apply: independency, stock, free state, or the surface is
+  not part of the size dimension in the stack) it adds a contributor
+  ``0 +/- t/2``. Under ISO / IS (ISO 8015 = IS 12160, independency principle)
+  the default is reversed: it adds ``0 +/- t/2`` unless the size carries the
+  envelope requirement (E) (``envelope=True``). The standard is chosen on
+  :class:`detecttol.gdt.GdtStack`.
 - Position, diametral zone ``T``, RFS: contributor ``0 +/- T/2`` along the
   stack direction, normal, ``sigma = T/(6 cp)``.
 - Position at MMC / LMC: the zone grows by the bonus ``B``, the departure of the
@@ -33,7 +37,8 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from scipy import integrate, stats
 
 from detecttol.core.loop import LoopVariable
-from detecttol.core.models import Contributor, Distribution, FiniteFloat
+from detecttol.core.models import Contributor, Distribution, DrawingStandard, FiniteFloat
+from detecttol.standards import envelope_by_default
 
 _STRICT = ConfigDict(strict=True, extra="forbid", frozen=True)
 
@@ -96,25 +101,61 @@ class _TranslationalCallout(BaseModel):
     cp: PositiveFloat = 1.0
 
 
+def _contained(
+    callout: Flatness | Parallelism, standard: DrawingStandard, *, defaulted: bool
+) -> bool:
+    """Whether a form/orientation zone is already inside the size limits.
+
+    ``defaulted`` is True when the caller did not set ``within_size`` itself.
+
+    - ASME (Rule #1): ``within_size`` decides; its default applies.
+    - ISO 8015 / IS 12160 (independency): size limits do not control form, so
+      the zone is contained only if the size also carries the envelope
+      requirement (E). ``within_size=True`` without ``envelope=True`` is a
+      contradiction and is refused rather than silently resolved.
+    """
+    if envelope_by_default(standard):
+        return callout.within_size
+    if defaulted:
+        return callout.envelope
+    if callout.within_size and not callout.envelope:
+        raise ValueError(
+            f"{callout.kind} '{callout.id}': within_size=True under {standard.upper()}"
+            " (independency principle, ISO 8015 / IS 12160): size limits do not control form"
+            " unless the size carries the envelope requirement (E). Set envelope: true if the"
+            " drawing shows (E), otherwise within_size: false."
+        )
+    return callout.within_size
+
+
 class Flatness(_TranslationalCallout):
     """Flatness, zone width ``tolerance`` [mm] (a form tolerance: no datums).
 
     Attributes:
-        within_size: ``True`` (default) when the surface belongs to a regular
-            feature of size whose size dimension is in the stack: under the
-            envelope rule the flatness is a refinement *inside* the size limits
-            and adds no variation, so the contributor has zero tolerance.
-            ``False`` when Rule #1 does not apply to it: the contributor is then
-            ``0 +/- tolerance/2`` along the stack direction.
+        within_size: whether the flatness is a refinement *inside* the size
+            limits of a feature of size whose size dimension is in the stack
+            (then it adds no variation). Under ASME (Rule #1) the default
+            ``True`` applies. Under ISO / IS the default is ignored and
+            :attr:`envelope` decides, because independency is the default there.
+        envelope: the size carries the envelope requirement (E) (ISO 14405-1).
+            Only meaningful under ISO / IS; ASME applies it by default.
+
+    Use :meth:`contained_in_size` rather than reading ``within_size`` directly:
+    the answer depends on the drawing standard.
     """
 
     kind: Literal["flatness"] = "flatness"
     distribution: Distribution = "normal"
     within_size: bool = True
+    envelope: bool = False
 
-    def to_contributor(self) -> Contributor:
-        """Contributor with nominal 0 and tolerance ``+/- t/2`` (or 0 if within size) [mm]."""
-        zone = 0.0 if self.within_size else self.tolerance
+    def contained_in_size(self, standard: DrawingStandard = "asme") -> bool:
+        """True if the zone adds nothing to a stack through that size (see :func:`_contained`)."""
+        return _contained(self, standard, defaulted="within_size" not in self.model_fields_set)
+
+    def to_contributor(self, standard: DrawingStandard = "asme") -> Contributor:
+        """Contributor with nominal 0 and tolerance ``+/- t/2`` (or 0 if contained) [mm]."""
+        zone = 0.0 if self.contained_in_size(standard) else self.tolerance
         return _zone_contributor(self.id, zone, self.sensitivity, self.distribution, self.cp)
 
 
@@ -124,19 +165,26 @@ class Parallelism(_TranslationalCallout):
     Attributes:
         within_size: required, no default. ``True`` when the toleranced face
             and the datum face are the two faces of the size dimension that is
-            in the stack: the parallelism error is then contained in that size
-            tolerance and adds nothing. ``False`` when the datum is another
-            feature: the contributor is ``0 +/- tolerance/2``.
+            in the stack: under ASME the parallelism error is then contained in
+            that size tolerance and adds nothing. ``False`` when the datum is
+            another feature: the contributor is ``0 +/- tolerance/2``. Under ISO
+            / IS ``True`` also needs :attr:`envelope` (independency principle).
+        envelope: that size carries the envelope requirement (E).
     """
 
     kind: Literal["parallelism"] = "parallelism"
     datums: DatumReferenceFrame
     distribution: Distribution = "normal"
     within_size: bool
+    envelope: bool = False
 
-    def to_contributor(self) -> Contributor:
-        """Contributor with nominal 0 and tolerance ``+/- t/2`` (or 0 if within size) [mm]."""
-        zone = 0.0 if self.within_size else self.tolerance
+    def contained_in_size(self, standard: DrawingStandard = "asme") -> bool:
+        """True if the zone adds nothing to a stack through that size (see :func:`_contained`)."""
+        return _contained(self, standard, defaulted=False)
+
+    def to_contributor(self, standard: DrawingStandard = "asme") -> Contributor:
+        """Contributor with nominal 0 and tolerance ``+/- t/2`` (or 0 if contained) [mm]."""
+        zone = 0.0 if self.contained_in_size(standard) else self.tolerance
         return _zone_contributor(self.id, zone, self.sensitivity, self.distribution, self.cp)
 
 

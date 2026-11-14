@@ -20,6 +20,9 @@ WarningCode = Literal[
     "ZERO_VARIATION",
     "MC_NOT_CONVERGED",
     "MC_ZERO_FAILURES",
+    "STANDARD_ASSUMED",
+    "TOLERANCE_FROM_TABLE",
+    "TABLE_NOT_VERIFIED",
 ]
 
 
@@ -161,12 +164,17 @@ class MonteCarloResult(BaseModel):
 
 
 class StackResult(BaseModel):
-    """Full analysis result for one stack."""
+    """Full analysis result for one stack.
+
+    ``standard`` is the drawing standard named by the input (``asme``, ``iso``,
+    ``is``) or ``None`` if it named none.
+    """
 
     model_config = _FROZEN
 
     name: str
     units: str
+    standard: Literal["asme", "iso", "is"] | None = None
     description: str
     lsl: float | None
     usl: float | None

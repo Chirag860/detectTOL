@@ -140,8 +140,10 @@ def geomtol_to_callout(
             MMC or LMC modifier (see :class:`detecttol.gdt.Position`).
         within_size: for flatness / parallelism, whether the tolerance is a
             refinement inside a size dimension of the stack (envelope rule) and
-            therefore adds nothing. Flatness defaults to ``True``; for
-            parallelism the caller must decide (not in the PMI).
+            therefore adds nothing. For flatness ``None`` leaves the decision to
+            the drawing standard of the :class:`detecttol.gdt.GdtStack` (ASME:
+            contained; ISO / IS: added unless ``envelope``); for parallelism the
+            caller must decide (not in the PMI).
 
     Raises:
         PmiMappingError: any other tolerance type, or missing/invalid data.
@@ -160,13 +162,15 @@ def geomtol_to_callout(
     frame = datum_frame(tolerance)
     try:
         if kind == "Flatness":
-            return Flatness(
-                id=cid,
-                tolerance=float(tolerance.value),
-                sensitivity=sensitivity,
-                cp=cp,
-                within_size=True if within_size is None else within_size,
-            )
+            flatness_args: dict[str, object] = {
+                "id": cid,
+                "tolerance": float(tolerance.value),
+                "sensitivity": sensitivity,
+                "cp": cp,
+            }
+            if within_size is not None:  # otherwise the drawing standard's default applies
+                flatness_args["within_size"] = within_size
+            return Flatness.model_validate(flatness_args)
         if frame is None:
             raise PmiMappingError(
                 f"geometric tolerance '{tolerance.name}': {kind} needs a datum reference"
