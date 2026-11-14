@@ -70,6 +70,35 @@ works out each sign itself. It stops with an explanation if the parts do not
 touch, if there are two possible chains, or if a contact is not flat.
 Tolerances are **not** yet taken from PMI in the STEP file automatically.
 
+## Straight from SolidWorks (no YAML)
+
+On a Windows PC with SolidWorks installed (tested: SOLIDWORKS 2026), detectTOL
+reads the tolerances you put in the model with **DimXpert** (and, optionally,
+toleranced dimensions in a drawing). Your files are opened read-only and never
+saved. Needs `conda install pywin32` in the detecttol environment once.
+
+1. See the faces and the tolerances found on them:
+
+   ```bash
+   detecttol faces Tolerance_Test.SLDASM --drawing Block_C.SLDDRW
+   ```
+
+2. Analyse the gap between two faces (numbers from step 1):
+
+   ```bash
+   detecttol analyze-cad Tolerance_Test.SLDASM --drawing Block_C.SLDDRW --from Block_C:2 --to Frame:4 --standard is --general m
+   ```
+
+   `--general m` gives the IS 2102 / ISO 2768-m general tolerance to any
+   dimension in the chain that has no tolerance in the model; without it the
+   tool stops and tells you which one is missing. The default requirement is
+   gap ≥ 0 (`--lsl 0`).
+
+The same command works on a STEP file with semantic PMI (`.step`), for other CAD
+tools. SolidWorks without the MBD add-in cannot export STEP with tolerances, so
+for SolidWorks use the `.SLDASM` route. Example files: `examples/solidworks/`.
+An app with a 3D view is planned (no command line needed).
+
 ## Indian (IS) and ISO drawings
 
 Say which standard the drawing follows, at the top of any stack file:

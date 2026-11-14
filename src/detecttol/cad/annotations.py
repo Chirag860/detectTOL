@@ -189,6 +189,8 @@ class ResolvedDimension:
     direction: tuple[float, float, float]
     tolerance_source: str | None = None
     tolerance_verified: bool = True
+    cad_source: str | None = None
+    is_size: bool = False
 
     def to_contributor(self, sensitivity: float) -> Contributor:
         """This dimension as a stack contributor with the given sensitivity."""
@@ -202,6 +204,7 @@ class ResolvedDimension:
             cp=self.cp,
             tolerance_source=self.tolerance_source,
             tolerance_verified=self.tolerance_verified,
+            cad_source=self.cad_source,
         )
 
 

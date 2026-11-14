@@ -18,6 +18,8 @@ import detecttol
 from detecttol.core.analyze import analyze as run_analysis
 from detecttol.core.loop import analyze_loop
 from detecttol.core.loop3d import VectorLoop3D, analyze_loop3d
+from detecttol.core.models import AnalysisConfig, MonteCarloConfig
+from detecttol.core.results import StackResult
 from detecttol.io import LoopInput, StackInputError, load_input
 from detecttol.report import (
     AnyReport,
@@ -95,44 +97,149 @@ def _load(path: Path) -> Any:
     return load_input(path)
 
 
-@app.command()
-def faces(
-    step_file: Annotated[Path, typer.Argument(help="STEP file (.step / .stp).")],
-) -> None:
-    """List the planar faces of a STEP model as annotation-file selectors (YAML).
-
-    Each entry gives part name, face index, centroid [mm] and outward normal:
-    copy the ones you need into an annotation file. Also prints how much
-    semantic PMI the file contains. Needs pythonocc-core (conda-forge).
-    """
+def _cad_modules() -> Any:
+    """Import the CAD stack builder (needs pythonocc-core), or exit with a clear message."""
     try:
-        # Imported here so that the rest of the CLI works without pythonocc-core.
-        from detecttol.cad.annotations import face_table
-        from detecttol.cad.step_reader import StepReadError, read_step
+        from detecttol.cad import cad_stack
     except ImportError as exc:
         typer.echo(
-            "error: reading STEP files needs pythonocc-core (install the conda environment)",
+            "error: reading CAD files needs pythonocc-core (install the conda environment)",
             err=True,
         )
         raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    return cad_stack
+
+
+@app.command()
+def faces(
+    cad_file: Annotated[
+        Path, typer.Argument(help="STEP file (.step / .stp) or SolidWorks assembly (.SLDASM).")
+    ],
+    drawing: Annotated[
+        list[Path] | None,
+        typer.Option("--drawing", "-d", help="SolidWorks drawing (.SLDDRW) to read too."),
+    ] = None,
+) -> None:
+    """List the planar faces of a model, with the tolerances found on each.
+
+    Each entry gives part name, face index, centroid [mm] and outward normal; use
+    `PART:FACE` with `detecttol analyze-cad`, or copy the entry into an annotation
+    file. A SolidWorks assembly is read through the installed SolidWorks
+    (read-only; about 20 s). Needs pythonocc-core (conda-forge).
+    """
+    cad_stack = _cad_modules()
+    from detecttol.cad.annotations import face_table
+    from detecttol.cad.step_reader import StepReadError
+
     try:
-        model = read_step(step_file)
-    except StepReadError as exc:
+        cad = cad_stack.read_cad(cad_file, drawing or ())
+    except (cad_stack.CadStackError, StepReadError) as exc:
         typer.echo(f"error: {exc}", err=True)
         raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    model = cad.model
+    on_face: dict[tuple[str, int], list[str]] = {}
+    for dim in cad.dimensions:
+        text = f"{dim.id} {dim.nominal:g} {dim.upper_tol:+g}/{dim.lower_tol:+g}"
+        for ref in (dim.from_face, dim.to_face):
+            on_face.setdefault((ref.part, ref.face_index), []).append(text)
+    for callout, ref in cad.flatness:
+        on_face.setdefault((ref.part, ref.face_index), []).append(
+            f"{callout.id} flatness {callout.tolerance:g}"
+        )
     lines = [
-        f"# {step_file.as_posix()}",
+        f"# {cad_file.as_posix()}",
         f"# parts: {len(model.parts)}; semantic PMI: {len(model.dimensions)} dimensions,"
         f" {len(model.geometric_tolerances)} geometric tolerances, {len(model.datums)} datums",
+        f"# usable tolerances from {cad.origin}:"
+        f" {len(cad.dimensions)} dimensions, {len(cad.flatness)} flatness",
     ]
-    lines += [f"# note: {note}" for note in model.notes]
+    lines += [f"# note: {note}" for note in (*model.notes, *cad.notes)]
     lines.append("faces:")
     for row in face_table(model):
+        found = on_face.get((row["part"], row["face"]), [])
+        tail = f"; {'; '.join(found)}" if found else ""
         lines.append(
             f"  - {{part: {json.dumps(row['part'])}, face: {row['face']},"
-            f" centroid: {row['centroid']}, normal: {row['normal']}}}  # area {row['area']} mm^2"
+            f" centroid: {row['centroid']}, normal: {row['normal']}}}"
+            f"  # area {row['area']} mm^2{tail}"
         )
     typer.echo("\n".join(lines))
+
+
+@app.command("analyze-cad")
+def analyze_cad(
+    cad_file: Annotated[
+        Path, typer.Argument(help="SolidWorks assembly (.SLDASM) or STEP file (.step / .stp).")
+    ],
+    face_from: Annotated[str, typer.Option("--from", help="First face, PART:FACE.")],
+    face_to: Annotated[str, typer.Option("--to", help="Second face, PART:FACE.")],
+    drawing: Annotated[
+        list[Path] | None,
+        typer.Option("--drawing", "-d", help="SolidWorks drawing (.SLDDRW) to read too."),
+    ] = None,
+    lsl: Annotated[
+        float | None, typer.Option(help="Lower spec limit [mm]; default 0 (gap >= 0).")
+    ] = None,
+    usl: Annotated[float | None, typer.Option(help="Upper spec limit [mm].")] = None,
+    standard: Annotated[str | None, typer.Option(help="Drawing standard: asme, iso or is.")] = None,
+    general_class: Annotated[
+        str | None,
+        typer.Option(
+            "--general", "-g", help="General tolerance class f/m/c/v for untoleranced dimensions."
+        ),
+    ] = None,
+    samples: Annotated[int, typer.Option(help="Monte Carlo samples.")] = 100_000,
+    seed: Annotated[int, typer.Option(help="Monte Carlo seed.")] = 42,
+    fmt: Annotated[
+        OutputFormat, typer.Option("--format", "-f", help="Report format.")
+    ] = OutputFormat.md,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", "-o", help="Output directory. Without it the report goes to stdout."),
+    ] = None,
+) -> None:
+    """Analyse the gap between two faces of a CAD model, tolerances read from the model.
+
+    Example: `detecttol analyze-cad Tolerance_Test.SLDASM --from Block_C:2 --to Frame:4
+    --standard is --general m`. Face numbers come from `detecttol faces`.
+    """
+    cad_stack = _cad_modules()
+    from detecttol.cad.step_reader import StepReadError
+
+    if standard not in (None, "asme", "iso", "is"):
+        typer.echo(f"error: --standard must be asme, iso or is, got {standard!r}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR)
+    try:
+        general_checked = check_general_class(general_class)
+        cad = cad_stack.read_cad(cad_file, drawing or ())
+        built = cad_stack.build_cad_stack(
+            cad,
+            cad_stack.parse_face(face_from),
+            cad_stack.parse_face(face_to),
+            lsl=0.0 if lsl is None and usl is None else lsl,
+            usl=usl,
+            standard=standard,  # type: ignore[arg-type]
+            general_class=general_checked,
+            name=_safe_name(cad_file.stem),
+            description=f"distance {face_from} -> {face_to}",
+            analysis=AnalysisConfig(
+                methods=["worst_case", "rss", "monte_carlo"],
+                monte_carlo=MonteCarloConfig(n=samples, seed=seed),
+            ),
+        )
+    except (cad_stack.CadStackError, StepReadError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    for note in (*built.cad.notes, *built.notes):
+        typer.echo(f"note: {note}", err=True)
+    result = built.analyze()
+    report = build_report(
+        result,
+        version=detecttol.__version__,
+        generated_at=_timestamp(),
+        input_file=cad_file.as_posix(),
+    )
+    _write(report, result, built.stack.name, fmt, out)
 
 
 @app.command()
@@ -219,8 +326,14 @@ def analyze(
             input_file=stack_file.as_posix(),
         )
         name = loaded.name
-    base = _safe_name(name)
+    _write(report, result, name, fmt, out)
 
+
+def _write(
+    report: AnyReport, result: StackResult, name: str, fmt: OutputFormat, out: Path | None
+) -> None:
+    """Render ``report`` in ``fmt`` to stdout or ``out/<name>.<fmt>``."""
+    base = _safe_name(name)
     if out is not None:
         out.mkdir(parents=True, exist_ok=True)
 

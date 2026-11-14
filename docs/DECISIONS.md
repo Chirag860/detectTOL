@@ -101,6 +101,10 @@ Maintainer: "you have full access to whether mark verified for a human needed ta
 | D62 | Parallelism inside a size under ISO / IS | Contained only with `envelope: true`; `within_size=True` alone is refused | PROVISIONAL, **UNSURE** (GD&T question Q-ISO-1 to the maintainer) | Follows the independency principle; refusing is safer than choosing silently. |
 | D63 | ISO 286 table without a verified copy | Ship IT5–IT18 for H/h/JS/js with a `TABLE_NOT_VERIFIED` warning; refuse other letters | PROVISIONAL | Rule 1: no value that cannot be traced. The warning stays until a human checks the 91 cells. |
 | D64 | Where the standard is shown | `StackResult.standard` (JSON, `null` when not stated); Markdown/HTML line only when stated | DECIDED | Smallest report change; the JSON snapshots gain one `"standard": null` line, no numbers change. |
+| D65 | App plan (browser app; SolidWorks via COM; STEP kept) | As in the approved plan, incl. root.md non-goal changes (GUI, native SolidWorks reading) and optional deps pywin32, nicegui | APPROVED 2026-11-14 | Maintainer approved the plan; root.md §1/§2 to be edited accordingly in Step 3. |
+| D66 | Default requirement in `analyze-cad` | `lsl = 0` (gap ≥ 0) when neither limit is given | PROVISIONAL | The most common requirement; the report always prints the limits used. |
+| D67 | Missing tolerance in a CAD chain | General class if given, else stop (A38) | DECIDED (maintainer chose "ask in a table" for the app) | — |
+| D68 | ISO 2768 class stored in a SolidWorks part | Not read; the class is asked for (`--general`) | PROVISIONAL, open | `GetBlockTolerances` fails and the preference value is ambiguous (phase-app-1). |
 
 ## Still open (not needed until later phases)
 

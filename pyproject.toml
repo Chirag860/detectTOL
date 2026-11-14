@@ -31,6 +31,8 @@ dev = [
     "types-PyYAML",
     "pre-commit",
 ]
+# Reading SolidWorks files drives a locally installed, licensed SolidWorks (Windows only).
+solidworks = ["pywin32>=306; sys_platform == 'win32'"]
 
 [project.scripts]
 detecttol = "detecttol.cli.main:app"
@@ -44,6 +46,9 @@ detecttol = ["py.typed", "report/schema/*.json"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --strict-markers"
+markers = [
+    "solidworks: needs a licensed SOLIDWORKS 2026 and pywin32; runs only with DETECTTOL_SOLIDWORKS=1",
+]
 
 [tool.coverage.run]
 source = ["detecttol"]
