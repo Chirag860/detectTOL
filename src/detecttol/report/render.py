@@ -10,6 +10,7 @@ from jinja2 import Environment, StrictUndefined, select_autoescape
 
 from detecttol.core.results import ContributorSummary, StackResult
 from detecttol.report.model import AnyReport, LoopDetails, LoopReport
+from detecttol.standards import standard_label
 
 _DASH = "n/a"
 
@@ -52,6 +53,8 @@ _MD_TEMPLATE = """\
 ## Input summary
 
 - Units: {{ r.units }}
+{% if r.standard %}- Drawing standard: {{ standard_text }}
+{% endif -%}
 - LSL: {{ fmt(r.lsl) }}
 - USL: {{ fmt(r.usl) }}
 - Constant term: {{ fmt(r.constant) }}
@@ -169,6 +172,7 @@ img { max-width: 100%; }
 <h2>Input summary</h2>
 <table>
 <tr><th>Units</th><td>{{ r.units }}</td></tr>
+{% if r.standard %}<tr><th>Drawing standard</th><td>{{ standard_text }}</td></tr>{% endif %}
 <tr><th>LSL</th><td>{{ fmt(r.lsl) }}</td></tr>
 <tr><th>USL</th><td>{{ fmt(r.usl) }}</td></tr>
 <tr><th>Constant term</th><td>{{ fmt(r.constant) }}</td></tr>
@@ -312,6 +316,7 @@ def _context(report: AnyReport) -> dict[str, Any]:
         "convention_text": "",
         "fmt": fmt,
         "fmt_pct": fmt_pct,
+        "standard_text": standard_label(r.standard),
     }
     if isinstance(report, LoopReport):
         loop = report.loop

@@ -300,6 +300,8 @@ def build_chain(
             sensitivity=1.0 if signed > 0 else -1.0,
             distribution=dim.distribution,
             cp=dim.cp,
+            tolerance_source=dim.tolerance_source,
+            tolerance_verified=dim.tolerance_verified,
         )
         links.append((order[key], ChainLink(part_obj.name, entry, exit_face, signed, contributor)))
 

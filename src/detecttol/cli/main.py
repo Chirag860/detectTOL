@@ -29,6 +29,7 @@ from detecttol.report import (
     to_markdown,
     utc_timestamp,
 )
+from detecttol.standards.lookup import check_general_class, look_up
 
 app = typer.Typer(
     add_completion=False,
@@ -132,6 +133,34 @@ def faces(
             f" centroid: {row['centroid']}, normal: {row['normal']}}}  # area {row['area']} mm^2"
         )
     typer.echo("\n".join(lines))
+
+
+@app.command()
+def limits(
+    size: Annotated[float, typer.Argument(help="Basic (nominal) size in mm.")],
+    tolerance_class: Annotated[
+        str, typer.Argument(help="ISO 286 class (H7, h6, JS9, js8) or 'general'.")
+    ],
+    general_class: Annotated[
+        str | None,
+        typer.Option("--general", "-g", help="General tolerance class f, m, c or v (IS 2102)."),
+    ] = None,
+) -> None:
+    """Print the limit deviations of a tolerance class at one size.
+
+    Examples: `detecttol limits 25 H7`, `detecttol limits 25 general --general m`.
+    """
+    try:
+        found = look_up(size, tolerance_class, check_general_class(general_class))
+    except ValueError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    typer.echo(
+        f"{size:g} {tolerance_class}: upper {found.upper_tol:+g} mm, lower {found.lower_tol:+g} mm"
+    )
+    typer.echo(f"source: {found.source}")
+    if not found.verified:
+        typer.echo("warning: this table has not yet been checked against a printed copy")
 
 
 @app.command()

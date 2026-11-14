@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from detecttol.core.loop import LoopVariable, LoopVector, VectorLoop
 from detecttol.core.loop3d import LoopVector3D, VectorLoop3D
 from detecttol.core.models import AnalysisConfig, FiniteFloat, Requirement, Stack
+from detecttol.standards.lookup import check_general_class, expand_contributor
 
 AngleUnit = Literal["deg", "rad"]
 
@@ -155,13 +156,46 @@ def _require_mapping(data: Any) -> dict[str, Any]:
     return data
 
 
+def _expand_classes(data: dict[str, Any]) -> dict[str, Any]:
+    """Replace ``tolerance_class`` entries by looked-up deviations.
+
+    ``general_tolerance`` (f/m/c/v) is a document-level setting used only here.
+    """
+    out = dict(data)
+    errors: list[str] = []
+    try:
+        general_class = check_general_class(out.pop("general_tolerance", None))
+    except ValueError as exc:
+        raise StackInputError([f"general_tolerance: {exc}"]) from exc
+    contributors = out.get("contributors")
+    if isinstance(contributors, list):
+        expanded: list[Any] = []
+        for i, item in enumerate(contributors):
+            if not isinstance(item, dict):
+                expanded.append(item)
+                continue
+            try:
+                expanded.append(expand_contributor(item, general_class))
+            except ValueError as exc:
+                errors.append(f"contributors[{i}].{exc}")
+                expanded.append(item)
+        out["contributors"] = expanded
+    if errors:
+        raise StackInputError(errors)
+    return out
+
+
 def parse_stack(data: Any) -> Stack:
     """Validate already-parsed data (a mapping) into a linear :class:`Stack`.
+
+    A contributor may give ``tolerance_class`` (an ISO 286 class such as
+    ``H7``, or ``general`` with a top-level ``general_tolerance: f|m|c|v``)
+    instead of ``upper_tol`` / ``lower_tol``; see :mod:`detecttol.standards`.
 
     Raises:
         StackInputError: with one field-named message per validation problem.
     """
-    return _validate(Stack, _require_mapping(data))
+    return _validate(Stack, _expand_classes(_require_mapping(data)))
 
 
 def _angle_factor(angle_units: AngleUnit) -> float:

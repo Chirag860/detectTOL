@@ -38,11 +38,12 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from detecttol.cad.step_reader import FaceInfo, FaceRef, StepModel
 from detecttol.core.models import Contributor, Distribution, FiniteFloat
 from detecttol.gdt.models import DatumLabel, Flatness, PlanarDatum
+from detecttol.standards.lookup import look_up
 
 _STRICT = ConfigDict(strict=True, extra="forbid", frozen=True, populate_by_name=True)
 
@@ -85,6 +86,11 @@ class DimensionAnnotation(BaseModel):
 
     ``nominal`` is optional; the distance is always measured on the model and a
     stated nominal must agree with it.
+
+    The tolerance is either ``upper_tol`` + ``lower_tol`` or ``tolerance_class``:
+    an ISO 286 / IS 919 class (``H7``, ``h6``, ``JS9``, ``js8``) or ``general``
+    (the file's ``general_tolerance``, IS 2102 / ISO 2768-1), looked up at the
+    measured distance.
     """
 
     model_config = _STRICT
@@ -93,15 +99,30 @@ class DimensionAnnotation(BaseModel):
     kind: Literal["dimension"]
     from_face: FaceSelector = Field(alias="from")
     to_face: FaceSelector = Field(alias="to")
-    upper_tol: FiniteFloat
-    lower_tol: FiniteFloat
+    upper_tol: FiniteFloat | None = None
+    lower_tol: FiniteFloat | None = None
+    tolerance_class: Annotated[str, Field(min_length=1)] | None = None
     nominal: FiniteFloat | None = None
     distribution: Distribution = "normal"
     cp: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 1.0
 
+    @model_validator(mode="after")
+    def _check_tolerance(self) -> DimensionAnnotation:
+        numbers = (self.upper_tol is not None, self.lower_tol is not None)
+        if self.tolerance_class is not None:
+            if any(numbers):
+                raise ValueError("give either tolerance_class or upper_tol / lower_tol, not both")
+        elif not all(numbers):
+            raise ValueError("needs upper_tol and lower_tol, or a tolerance_class")
+        return self
+
 
 class FlatnessAnnotation(BaseModel):
-    """Flatness of one planar face, zone width ``tolerance`` [mm]."""
+    """Flatness of one planar face, zone width ``tolerance`` [mm].
+
+    ``envelope``: the size this face belongs to carries the envelope
+    requirement (E) (matters only under ISO / IS drawings).
+    """
 
     model_config = _STRICT
 
@@ -110,6 +131,7 @@ class FlatnessAnnotation(BaseModel):
     on: FaceSelector
     tolerance: Annotated[float, Field(gt=0.0, allow_inf_nan=False)]
     cp: Annotated[float, Field(gt=0.0, allow_inf_nan=False)] = 1.0
+    envelope: bool = False
 
 
 class DatumAnnotation(BaseModel):
@@ -128,12 +150,17 @@ Annotation = Annotated[
 
 
 class AnnotationFile(BaseModel):
-    """The whole annotation document. All lengths are millimetres."""
+    """The whole annotation document. All lengths are millimetres.
+
+    ``general_tolerance`` (f, m, c, v): the drawing's IS 2102 / ISO 2768-1
+    general tolerance class, used by dimensions with ``tolerance_class: general``.
+    """
 
     model_config = _STRICT
 
     schema_version: Literal[1]
     units: Literal["mm"]
+    general_tolerance: Literal["f", "m", "c", "v"] | None = None
     annotations: Annotated[list[Annotation], Field(min_length=1)]
 
 
@@ -160,6 +187,8 @@ class ResolvedDimension:
     from_face: FaceRef
     to_face: FaceRef
     direction: tuple[float, float, float]
+    tolerance_source: str | None = None
+    tolerance_verified: bool = True
 
     def to_contributor(self, sensitivity: float) -> Contributor:
         """This dimension as a stack contributor with the given sensitivity."""
@@ -171,6 +200,8 @@ class ResolvedDimension:
             sensitivity=float(sensitivity),
             distribution=self.distribution,
             cp=self.cp,
+            tolerance_source=self.tolerance_source,
+            tolerance_verified=self.tolerance_verified,
         )
 
 
@@ -215,7 +246,12 @@ def parse_annotations(data: Any) -> AnnotationFile:
     if dupes:
         raise AnnotationError([f"annotations: duplicate id(s) {dupes}"])
     for i, a in enumerate(doc.annotations):
-        if isinstance(a, DimensionAnnotation) and a.upper_tol < a.lower_tol:
+        if (
+            isinstance(a, DimensionAnnotation)
+            and a.upper_tol is not None
+            and a.lower_tol is not None
+            and a.upper_tol < a.lower_tol
+        ):
             raise AnnotationError(
                 [
                     f"annotations[{i}]: upper_tol ({a.upper_tol}) must be >="
@@ -327,12 +363,26 @@ def resolve_annotations(
                     ]
                 )
             sign = 1.0 if signed >= 0 else -1.0
+            source: str | None = None
+            verified = True
+            if annotation.tolerance_class is not None:
+                try:
+                    found = look_up(
+                        round(distance, 9), annotation.tolerance_class, doc.general_tolerance
+                    )
+                except ValueError as exc:
+                    raise AnnotationError([f"{where}.tolerance_class: {exc}"]) from exc
+                upper, lower = found.upper_tol, found.lower_tol
+                source, verified = found.source, found.verified
+            else:
+                assert annotation.upper_tol is not None and annotation.lower_tol is not None
+                upper, lower = annotation.upper_tol, annotation.lower_tol
             dimensions.append(
                 ResolvedDimension(
                     id=annotation.id,
                     nominal=distance,
-                    upper_tol=annotation.upper_tol,
-                    lower_tol=annotation.lower_tol,
+                    upper_tol=upper,
+                    lower_tol=lower,
                     distribution=annotation.distribution,
                     cp=annotation.cp,
                     from_face=ref_a,
@@ -342,12 +392,22 @@ def resolve_annotations(
                         sign * face_a.normal[1],
                         sign * face_a.normal[2],
                     ),
+                    tolerance_source=source,
+                    tolerance_verified=verified,
                 )
             )
         elif isinstance(annotation, FlatnessAnnotation):
             ref, _face = _match(model, annotation.on, f"{where}.on", centroid_tol)
             flatness.append(
-                (Flatness(id=annotation.id, tolerance=annotation.tolerance, cp=annotation.cp), ref)
+                (
+                    Flatness(
+                        id=annotation.id,
+                        tolerance=annotation.tolerance,
+                        cp=annotation.cp,
+                        envelope=annotation.envelope,
+                    ),
+                    ref,
+                )
             )
         else:
             ref, _face = _match(model, annotation.on, f"{where}.on", centroid_tol)

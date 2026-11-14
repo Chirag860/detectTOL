@@ -1,0 +1,28 @@
+# An IS drawing: a shaft in a bored housing, closed by a cover.
+# Requirement: axial clearance between the shaft shoulder and the cover >= 0.
+#
+#   bore depth 40 (general tolerance, IS 2102-m)      -> +/-0.3
+#   shaft collar 25 h7 (IS 919 / ISO 286)             -> 0 / -0.021
+#   spacer 14.4 (general tolerance, IS 2102-m)        -> +/-0.2
+#
+# Y = bore - collar - spacer: nominal 0.6.
+# Hand check: mean = 40 - (25 - 0.0105) - 14.4 = 0.6105
+#             worst case = 0.3 + 0.0105 + 0.2 = 0.5105 -> [0.1, 1.121]
+#
+# Run:  detecttol analyze examples/is_fit_and_general.yaml
+# The ISO 286 table is flagged TABLE_NOT_VERIFIED until checked against a printed copy.
+schema_version: 1
+units: mm
+name: shaft_axial_clearance_is
+standard: is
+general_tolerance: m
+requirement:
+  description: axial clearance between shaft shoulder and cover
+  lsl: 0.0
+contributors:
+  - {id: bore_depth, nominal: 40.0, tolerance_class: general, sensitivity: 1.0}
+  - {id: shaft_collar, nominal: 25.0, tolerance_class: h7, sensitivity: -1.0}
+  - {id: spacer, nominal: 14.4, tolerance_class: general, sensitivity: -1.0}
+analysis:
+  methods: [worst_case, rss, monte_carlo]
+  monte_carlo: {n: 100000, seed: 42}

@@ -9,6 +9,7 @@
   "result": {
     "name": "wedge_height",
     "units": "mm",
+    "standard": null,
     "description": "height of the wedge tip above the base",
     "lsl": 20.0,
     "usl": 21.4,

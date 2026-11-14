@@ -6,7 +6,13 @@ import logging
 from collections.abc import Callable, Sequence
 
 from detecttol.core import linear, montecarlo
-from detecttol.core.models import AnalysisConfig, Contributor, Requirement, Stack
+from detecttol.core.models import (
+    AnalysisConfig,
+    Contributor,
+    DrawingStandard,
+    Requirement,
+    Stack,
+)
 from detecttol.core.montecarlo import FloatArray
 from detecttol.core.results import (
     AnalysisWarning,
@@ -56,6 +62,7 @@ def analyze(stack: Stack) -> StackResult:
         analysis=stack.analysis,
         mean=linear.stack_mean(contributors, constant),
         sampler=sampler,
+        standard=stack.standard,
     )
 
 
@@ -68,6 +75,7 @@ def analyze_linearised(
     analysis: AnalysisConfig,
     mean: float,
     sampler: Callable[[int, int], FloatArray],
+    standard: DrawingStandard | None = None,
 ) -> StackResult:
     """Shared engine for linear stacks and linearised (vector-loop) stacks.
 
@@ -80,9 +88,13 @@ def analyze_linearised(
         analysis: methods to run, Monte Carlo settings, Bender factor.
         mean: Y evaluated at the contributor means [mm].
         sampler: ``sampler(n, seed)`` returns ``n`` samples of the exact Y [mm].
+        standard: drawing standard, echoed in the result (``None`` = not stated).
 
     Worst case and RSS use ``mean`` and the sensitivities; Monte Carlo uses the
-    sampler, i.e. the exact (possibly nonlinear) function.
+    sampler, i.e. the exact (possibly nonlinear) function. Contributors whose
+    tolerance was looked up in a standard's table are listed in a
+    ``TOLERANCE_FROM_TABLE`` warning, and in ``TABLE_NOT_VERIFIED`` when that
+    table has not been checked against a printed copy.
     """
     req = requirement
     methods = analysis.methods
@@ -114,6 +126,23 @@ def analyze_linearised(
         )
         for i, c in enumerate(contributors)
     ]
+
+    from_table = [c for c in contributors if c.tolerance_source is not None]
+    if from_table:
+        warn(
+            "TOLERANCE_FROM_TABLE",
+            "Tolerances looked up in a standard's table, not given directly: "
+            + "; ".join(f"{c.id}: {c.tolerance_source}" for c in from_table)
+            + ". Check them against the drawing.",
+        )
+    unverified = [c.id for c in from_table if not c.tolerance_verified]
+    if unverified:
+        warn(
+            "TABLE_NOT_VERIFIED",
+            "The table behind these tolerances has not yet been checked against a printed"
+            f" copy of the standard: {', '.join(unverified)}. Confirm the limits with your"
+            " copy of IS 919 / ISO 286 before relying on the result.",
+        )
 
     if wc_half == 0.0:
         warn(
@@ -220,4 +249,5 @@ def analyze_linearised(
         modified_rss=modified_rss,
         monte_carlo=monte_carlo,
         warnings=warnings,
+        standard=standard,
     )

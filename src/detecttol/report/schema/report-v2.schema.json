@@ -12,7 +12,10 @@
             "NON_NORMAL_INPUT",
             "ZERO_VARIATION",
             "MC_NOT_CONVERGED",
-            "MC_ZERO_FAILURES"
+            "MC_ZERO_FAILURES",
+            "STANDARD_ASSUMED",
+            "TOLERANCE_FROM_TABLE",
+            "TABLE_NOT_VERIFIED"
           ],
           "title": "Code",
           "type": "string"
@@ -542,7 +545,7 @@
     },
     "StackResult": {
       "additionalProperties": false,
-      "description": "Full analysis result for one stack.",
+      "description": "Full analysis result for one stack.\n\n``standard`` is the drawing standard named by the input (``asme``, ``iso``,\n``is``) or ``None`` if it named none.",
       "properties": {
         "constant": {
           "title": "Constant",
@@ -607,6 +610,23 @@
               "type": "null"
             }
           ]
+        },
+        "standard": {
+          "anyOf": [
+            {
+              "enum": [
+                "asme",
+                "iso",
+                "is"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Standard"
         },
         "units": {
           "title": "Units",
