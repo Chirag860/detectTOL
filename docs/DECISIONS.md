@@ -108,6 +108,8 @@ Maintainer: "you have full access to whether mark verified for a human needed ta
 | D69 | App defaults | Drawing standard IS, general tolerance class m, LSL 0 (gap >= 0), 100 000 Monte Carlo samples, seed 42; all visible and editable on the page | PROVISIONAL | Maintainer works to Indian Standards; the general class pre-fills untoleranced rows as the maintainer chose ("ask in a table", pre-filled). |
 | D70 | Choosing faces | Click in the 3D view **or** pick from lists that show each face's direction, position and the tolerances found on it | DECIDED | Faces touching across a small gap are often hidden in 3D; the list is the reliable way, the 3D view the quick one. |
 | D71 | Project file | `<model>.dtol` (JSON) next to the model: file paths, faces, limits, standard, class, typed values; the model is re-read on open | PROVISIONAL | CAD changes are picked up; nothing derived is stored. |
+| D72 | Windows install | A one-time setup script (`installer/install_detectTOL.bat` -> `install.ps1`): finds or offers Miniforge, creates/updates the conda env, installs detectTOL from the folder, Desktop + Start-menu shortcut. Not a conda `constructor` .exe yet | PROVISIONAL | Transparent (a readable script), per user, no admin rights, re-runnable to update. A single .exe for colleagues without the repo is a later option. |
+| D73 | App lifetime | Quit button; stops by itself 60 s after the last browser tab closed; a second start only opens the browser | DECIDED | Nothing keeps running in the background unnoticed. |
 
 ## Still open (not needed until later phases)
 

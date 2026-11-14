@@ -70,6 +70,12 @@ works out each sign itself. It stops with an explanation if the parts do not
 touch, if there are two possible chains, or if a contact is not flat.
 Tolerances are **not** yet taken from PMI in the STEP file automatically.
 
+## Install on Windows (for engineers)
+
+Double-click `installer\install_detectTOL.bat`. It sets everything up (offering to
+install Miniforge if you have no conda) and puts a **detectTOL** shortcut on your
+Desktop. Then read the [user guide](docs/USER_GUIDE.md).
+
 ## The app (no command line needed after start)
 
 ```bash

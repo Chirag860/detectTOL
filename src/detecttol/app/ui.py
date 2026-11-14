@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import itertools
 import os
+import socket
+import time
+import webbrowser
 from pathlib import Path
 from typing import Any
 
 from fastapi import Response
-from nicegui import app, run, ui
+from nicegui import Client, app, run, ui
 
 from detecttol.app.state import CAD_SUFFIXES, AppState, verdict
 from detecttol.cad.cad_stack import CadStackError
@@ -52,7 +56,13 @@ def page() -> None:
     ui.page_title("detectTOL")
     with ui.header().classes("items-center justify-between"):
         ui.label("detectTOL — tolerance stack from your CAD model").classes("text-lg font-medium")
-        ui.label("runs on this PC only").classes("text-xs opacity-80")
+        with ui.row().classes("items-center"):
+            ui.label("runs on this PC only").classes("text-xs opacity-80")
+            ui.button("Quit", on_click=lambda: quit_app()).props("flat dense color=white")
+
+    def quit_app() -> None:
+        ui.notify("detectTOL is closing; you can close this tab.", type="info")
+        ui.timer(0.5, app.shutdown, once=True)
 
     with ui.row().classes("w-full items-start gap-4 p-2"):
         # ---------------- left: file, requirement --------------------------------------
@@ -88,7 +98,7 @@ def page() -> None:
                     ui.button("Save project", on_click=lambda: save_project()).props("flat dense")
 
         # ---------------- right: 3D, table, result -------------------------------------
-        with ui.column().classes("grow gap-3 min-w-0"):
+        with ui.column().classes("gap-3").style("flex: 1 1 0; min-width: 560px"):
             scene_box = ui.card().classes("w-full")
             with scene_box:
                 ui.label("3D view — drag to rotate, scroll to zoom, click a face").classes(
@@ -235,6 +245,16 @@ def page() -> None:
 
     from_in.on_value_change(lambda e: on_select("from", e.value))
     to_in.on_value_change(lambda e: on_select("to", e.value))
+
+    def on_typed(which: str, box: Any, text: Any) -> None:
+        """Typing an exact face name (e.g. Frame:4) chooses it, no click needed."""
+        key = str(text or "").strip()
+        if key in view.get("face_options", {}):
+            box.set_value(key)
+            on_select(which, key)
+
+    from_in.on("input-value", lambda e: on_typed("from", from_in, e.args))
+    to_in.on("input-value", lambda e: on_typed("to", to_in, e.args))
 
     def on_click(e: Any) -> None:
         if state.cad is None:
@@ -446,9 +466,47 @@ def page() -> None:
     redraw()
 
 
+#: The app stops this many seconds after its last browser tab was closed.
+IDLE_SHUTDOWN_S = 60.0
+
+
+def _port_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
+async def _watch_clients() -> None:
+    """Shut down when no browser tab has been connected for IDLE_SHUTDOWN_S."""
+    seen_any = False
+    idle_since: float | None = None
+    while True:
+        await asyncio.sleep(5)
+        connected = any(c.has_socket_connection for c in Client.instances.values())
+        seen_any = seen_any or connected
+        if connected or not seen_any:
+            idle_since = None
+            continue
+        idle_since = idle_since or time.monotonic()
+        if time.monotonic() - idle_since >= IDLE_SHUTDOWN_S:
+            app.shutdown()
+            return
+
+
 def main(host: str = "127.0.0.1", port: int = 8765, show: bool = True) -> None:
-    """Start the app (blocks). Local only by default."""
+    """Start the app (blocks). Local only by default.
+
+    If the app is already running on ``port``, only opens the browser. Stops by itself a
+    minute after the last browser tab is closed, or with the page's Quit button.
+    """
+    url = f"http://{host}:{port}"
+    if _port_in_use(host, port):
+        if show:
+            webbrowser.open(url)
+        print(f"detectTOL is already running: {url}")  # noqa: T201 - console launcher message
+        return
     os.environ.setdefault("MPLBACKEND", "Agg")
+    app.on_startup(lambda: asyncio.create_task(_watch_clients()))
     ui.run(
         host=host, port=port, title="detectTOL", show=show, reload=False, show_welcome_message=True
     )
