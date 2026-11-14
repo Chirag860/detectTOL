@@ -70,6 +70,31 @@ works out each sign itself. It stops with an explanation if the parts do not
 touch, if there are two possible chains, or if a contact is not flat.
 Tolerances are **not** yet taken from PMI in the STEP file automatically.
 
+## Indian (IS) and ISO drawings
+
+Say which standard the drawing follows, at the top of any stack file:
+
+```yaml
+standard: is          # asme | iso | is   (is = Indian Standards; same rules as iso)
+general_tolerance: m  # optional: the IS 2102 / ISO 2768 class from the title block
+```
+
+- **What changes:** IS and ISO drawings use the *independency principle*
+  (IS 12160 = ISO 8015). A flatness on a sized face then **adds** ±t/2 to the
+  stack, unless the size is marked Ⓔ (`envelope: true`). ASME's Rule #1 does
+  the opposite. Plain ± stacks give the same numbers under every standard.
+- **No standard given:** ASME is assumed, and the report warns you wherever
+  that changed a result.
+- **Tolerances by class:** instead of `upper_tol` / `lower_tol`, a contributor
+  or STEP dimension can give `tolerance_class`:
+  - `general`: the file's `general_tolerance` (IS 2102 (Part 1) = ISO 2768-1).
+  - `H7`, `h6`, `JS9`, `js8`: IS 919 / ISO 286 classes H, h, JS, js, IT5–IT18,
+    up to 500 mm. Other letters (g6, k6, P7, …) are not supported yet. **This
+    table has not been checked against a printed copy**, so every report that
+    uses it says so (`TABLE_NOT_VERIFIED`).
+- Look up one class: `detecttol limits 25 H7` or `detecttol limits 25 general --general m`.
+- Example: [examples/is_fit_and_general.yaml](examples/is_fit_and_general.yaml).
+
 ## Read before trusting a number
 
 - Every modelling assumption is in [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md).

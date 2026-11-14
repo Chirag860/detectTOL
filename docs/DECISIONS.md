@@ -96,6 +96,11 @@ Maintainer: "you have full access to whether mark verified for a human needed ta
 | D57 | Human check of golden values | `validation/verify_golden.py`, 86 of 86 | DONE under delegation | "Human: pending" columns |
 | D58 | Angular dimensions from STEP | Returned in radians (`unit: rad`) | DECIDED | — |
 | D59 | All other PROVISIONAL decisions (D23–D24, D28–D30, D32–D37, D39, D43–D44, D47–D50) | Kept as they are | ACCEPTED under delegation | — |
+| D60 | Build the IS/ISO option before Phase 7 | Yes; steps A (standard), B (ISO 286 classes), C (IS 2102 general tolerances) | APPROVED 2026-11-13 ("yes build all the steps") | Phase 7 validation and docs should cover both standards. |
+| D61 | Input without a standard | ASME assumed + `STANDARD_ASSUMED` warning only where a result depends on it | PROVISIONAL (recommended default; the maintainer approved the plan without answering this question separately) | Keeps every existing file and snapshot unchanged. |
+| D62 | Parallelism inside a size under ISO / IS | Contained only with `envelope: true`; `within_size=True` alone is refused | PROVISIONAL, **UNSURE** (GD&T question Q-ISO-1 to the maintainer) | Follows the independency principle; refusing is safer than choosing silently. |
+| D63 | ISO 286 table without a verified copy | Ship IT5–IT18 for H/h/JS/js with a `TABLE_NOT_VERIFIED` warning; refuse other letters | PROVISIONAL | Rule 1: no value that cannot be traced. The warning stays until a human checks the 91 cells. |
+| D64 | Where the standard is shown | `StackResult.standard` (JSON, `null` when not stated); Markdown/HTML line only when stated | DECIDED | Smallest report change; the JSON snapshots gain one `"standard": null` line, no numbers change. |
 
 ## Still open (not needed until later phases)
 
