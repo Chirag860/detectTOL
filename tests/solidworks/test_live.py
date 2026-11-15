@@ -58,3 +58,34 @@ def test_analyze_cad_end_to_end() -> None:
     assert out.exit_code == 0, out.output
     assert "Range: [0.54, 1.36]" in out.output
     assert "chain Block_C -> Block_B -> Block_A -> Frame" in out.output
+
+
+FITS = FOLDER / "fits"
+
+
+def test_diameters_fits_and_positions_are_read(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """examples/solidworks/fits (docs/reports/phase-dia-1.md): fits made through the API
+    sit on the display dimension only; position datums / MMC only in the frame text."""
+    fit = read_solidworks(FITS / "Fit_Test.SLDASM", tmp_path / "f.step")
+    got = {d.part: (d.nominal, d.fit_code, d.fit_from, d.internal) for d in fit.data.diameters}
+    assert got == {
+        "Housing": (pytest.approx(20.0, abs=1e-9), "H7", "display", True),
+        "Shaft": (pytest.approx(20.0, abs=1e-9), "g6", "display", False),
+    }
+    pin = read_solidworks(FITS / "Pin_Test.SLDASM", tmp_path / "p.step")
+    dias = {d.part: (d.upper, d.lower) for d in pin.data.diameters}
+    assert dias == {"Plate_1": (0.05, -0.05), "Plate_2": (0.05, -0.05), "Pin": (0.0, -0.02)}
+    for pos in pin.data.positions:
+        assert (pos.value, pos.datums, pos.found_in) == (
+            pytest.approx(0.1, abs=1e-12), ("A", "B", "C"), "frame")  # fmt: skip
+    assert sorted((d.part, d.label) for d in pin.data.datums) == sorted(
+        (p, label) for p in ("Plate_1", "Plate_2") for label in "ABC")  # fmt: skip
+
+
+def test_fit_cad_end_to_end() -> None:
+    out = CliRunner().invoke(
+        app, ["fit-cad", str(FITS / "Fit_Test.SLDASM"), "--hole", "Housing:0", "--shaft", "Shaft:0",
+              "--samples", "2000"],
+    )  # fmt: skip
+    assert out.exit_code == 0, out.output
+    assert "fit: clearance fit; clearance from 0.007 to 0.041 mm" in out.output

@@ -131,7 +131,7 @@ def test_size_step_boundaries_are_up_to_and_including() -> None:
 @pytest.mark.parametrize(
     ("size", "cls", "message"),
     [
-        (25.0, "g6", "fundamental deviation 'g' is not available"),
+        (25.0, "K7", "fundamental deviation 'K' is not available"),
         (25.0, "P7", "fundamental deviation 'P' is not available"),
         (25.0, "H", "not an ISO 286 tolerance class"),
         (25.0, "7H", "not an ISO 286 tolerance class"),
@@ -150,3 +150,35 @@ def test_refused_classes(size: float, cls: str, message: str) -> None:
 def test_it14_is_allowed_just_above_1_mm() -> None:
     """IT14 = 10 x IT9 = 250 um in the first step (table IT9 = 25)."""
     assert it_value_um(1.5, 14) == 250
+
+
+@pytest.mark.parametrize(
+    ("size", "cls", "upper", "lower"),
+    [
+        # es from the shaft table, ei = es - IT
+        (20.0, "g6", -0.007, -0.020),  # es -7 (18-24), IT6 13 (18-30)
+        (40.0, "g6", -0.009, -0.025),  # es -9 (30-40), IT6 16 (30-50)
+        (18.0, "g6", -0.006, -0.017),  # boundary: 18 is "above 14 up to 18": es -6; IT6 11 (10-18)
+        (10.0, "f7", -0.013, -0.028),  # es -13 (6-10), IT7 15
+        (50.0, "e8", -0.050, -0.089),  # es -50 (40-50), IT8 39 (30-50)
+        # ei from the shaft table, es = ei + IT
+        (25.0, "k6", 0.015, 0.002),  # k for grades 4-7: +2 (24-30), IT6 13
+        (25.0, "k8", 0.033, 0.0),  # k for other grades: 0, IT8 33
+        (30.0, "m6", 0.021, 0.008),  # +8 (24-30), IT6 13
+        (50.0, "p6", 0.042, 0.026),  # +26 (40-50), IT6 16
+        (65.0, "r6", 0.060, 0.041),  # +41 (50-65), IT6 19 (50-80)
+        (65.5, "r6", 0.062, 0.043),  # +43 (65-80)
+        (25.0, "s6", 0.048, 0.035),  # +35 (24-30), IT6 13
+        # holes C-G: EI = -es of the shaft, ES = EI + IT
+        (20.0, "G7", 0.028, 0.007),  # EI +7, IT7 21
+        (20.0, "F8", 0.053, 0.020),  # EI +20, IT8 33
+    ],
+)
+def test_fundamental_deviation_classes(size: float, cls: str, upper: float, lower: float) -> None:
+    limits = class_limits(size, cls)
+    assert (limits.upper_tol, limits.lower_tol) == (
+        pytest.approx(upper, abs=1e-12),
+        pytest.approx(lower, abs=1e-12),
+    )
+    assert not limits.verified
+    assert "table not yet verified" in limits.source

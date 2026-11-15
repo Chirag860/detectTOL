@@ -127,7 +127,7 @@ data leaves it.
 | Step | What you do |
 |---|---|
 | **1. Open the model** | Browse to the folder, tick any drawings to include, and click the `.SLDASM` (read through SolidWorks in about 20 s) or `.step` file. |
-| **2. Define the requirement** | Click face 1 and face 2 in the 3D view, or pick them from the lists. Set the lower and upper limits, the drawing standard (IS / ISO / ASME) and the general tolerance class. |
+| **2. Define the requirement** | Click face 1 and face 2 in the 3D view, or pick them from the lists, for a gap. Or switch to **Fit check** and click a hole and a shaft. Set the limits, the drawing standard (IS / ISO / ASME) and the general tolerance class. |
 | **3. Review the chain** | Each dimension in the loop is listed with its sign and tolerance source. Dimensions without a tolerance are highlighted and can be filled in. |
 | **4. Analyse** | Get a plain-language verdict, worst case, RSS and Monte Carlo results, the biggest contributors, a histogram and a downloadable HTML report. |
 
@@ -167,6 +167,21 @@ detecttol analyze-cad Tolerance_Test.SLDASM --drawing Block_C.SLDDRW --from Bloc
 
 The same command accepts a STEP AP242 file with semantic PMI, so models from other
 CAD systems work too. Example files are in [`examples/solidworks/`](examples/solidworks).
+
+**Holes, shafts and pins.** `detecttol faces` also lists every hole and pin (`round:`)
+with its diameter, axis and any diameter, fit or position tolerance found. Check the
+fit of a hole and a shaft (clearance = hole Ø − shaft Ø):
+
+```bash
+detecttol fit-cad Fit_Test.SLDASM --hole Housing:0 --shaft Shaft:0
+```
+
+It prints e.g. *clearance fit; clearance from 0.007 to 0.041 mm* (Ø20 H7/g6), then the
+full report. In `analyze-cad`, a pin through holes of two parts is followed
+automatically when its axis is across the measuring direction. The pin adds its float
+(up to half the largest clearance either way), and each hole adds its position
+tolerance, with the MMC bonus when the position carries Ⓜ. Example files:
+[`examples/solidworks/fits/`](examples/solidworks/fits).
 
 ### 3. Command line: YAML stack definition
 
@@ -264,12 +279,15 @@ as a first-class requirement.
 detectTOL tells you clearly what it does not cover. In the current release:
 
 - CAD-driven chains work along **one straight direction**, through parts that touch on
-  **flat faces**. Angles, pins in holes and clearance fits are not yet read from CAD.
-  2D and 3D loops can be defined in YAML.
-- **Flatness** is the only geometric tolerance used in the stack. Position and profile
-  are read and listed, but not applied.
-- IS 919 / ISO 286 fit classes are supported for **H, h, JS and js** only, and the table
-  has not yet been checked against a printed copy. Reports that use it say so.
+  **flat faces** or through **pins in holes** across that direction. Angles are not yet
+  read from CAD. 2D and 3D loops can be defined in YAML.
+- **Flatness** and the **position of a hole** are the geometric tolerances used in the
+  stack. Profile and others are listed, but not applied.
+- IS 919 / ISO 286 fit classes: holes **H, JS, C–G**, shafts **h, js, c–g, k, m, n, p,
+  r, s**. The IT table and the fundamental deviations have not yet been checked against
+  a printed copy. Reports that use them say so.
+- A pin's float is modelled as uniform over the largest clearance. Worst case is exact;
+  the statistical result is conservative (see assumption A39).
 - The GD&T conversions have not yet been reviewed against the full text of ASME Y14.5.
 - Assemblies with rotated components, or with the same part used more than once, are
   not yet supported or tested.

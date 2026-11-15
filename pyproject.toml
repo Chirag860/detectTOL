@@ -76,6 +76,7 @@ ignore = [
 "src/detecttol/cli/*" = ["B008"] # typer uses function calls in defaults
 "src/detecttol/report/render.py" = ["E501"] # report templates have long table rows
 "src/detecttol/app/ui.py" = ["E501"] # page layout: long UI strings and class lists
+"src/detecttol/standards/iso286.py" = ["E501"] # ISO 286 tables: one row per letter, as in the source
 "tests/*" = ["B008"] # hypothesis strategies as argument defaults
 "validation/*" = ["T201"] # stand-alone scripts report on stdout
 

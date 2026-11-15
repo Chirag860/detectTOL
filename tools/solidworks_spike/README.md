@@ -17,4 +17,10 @@ Run from this folder (the scripts import `swlib` from here):
 | `match_faces.py <json> <step>` | SolidWorks faces → STEP faces (centroid + normal) |
 | `to_stack.py <json> <step> <out.yaml>` | schema-v3 stack from the read-out, no hand-typed tolerances |
 
-The generated files are in `examples/solidworks/`.
+| `build_fits.py <folder>` | diameter test parts: Housing (Ø20 H7), Shaft (Ø20 g6), Plate_1/2 (Ø6.2 ±0.05, datums, position 0.1), Pin (Ø6 +0/−0.02) |
+| `build_fit_asm.py <folder>` | `Fit_Test.SLDASM` (shaft in bore), `Pin_Test.SLDASM` (pin through two plates) |
+| `readout_dia.py <asm> <out.json>` | diameters, fits, datums, positions and round faces (saved: `readout_dia_*.json`) |
+| `match_cylinders.py <json> <step>` | round SolidWorks faces → STEP faces by axis and radius |
+
+The generated files are in `examples/solidworks/` (diameter tests: `examples/solidworks/fits/`).
+Diameter feasibility results: `docs/reports/phase-dia-1.md`.

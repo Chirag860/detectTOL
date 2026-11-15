@@ -1,0 +1,87 @@
+{
+ "assembly": "Fit_Test.SLDASM",
+ "solidworks": "34.4.1",
+ "read_s": 7.2,
+ "items": [
+  {
+   "part": "Shaft",
+   "name": "Diameter1@Boss1(20)",
+   "type": 109,
+   "feature": "Boss1",
+   "feature_type": 2,
+   "faces": [
+    {
+     "centroid": [
+      20.000405983977192,
+      20.0,
+      19.999999552965175
+     ],
+     "area": 2511.267034175027,
+     "surface": "cylinder",
+     "axis_point": [
+      20.0,
+      20.0,
+      40.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 10.0,
+     "reversed": true,
+     "step_match": []
+    }
+   ],
+   "nominal": 20.0,
+   "plus": 0.127,
+   "minus": -0.127,
+   "fit_code_dimxpert": "",
+   "display": {
+    "tol_type": 7,
+    "hole_fit": "",
+    "shaft_fit": "g6"
+   }
+  },
+  {
+   "part": "Housing",
+   "name": "Diameter1@Simple Hole1(20)",
+   "type": 109,
+   "feature": "Simple Hole1",
+   "feature_type": 7,
+   "faces": [
+    {
+     "centroid": [
+      20.000730332767834,
+      19.999999935686375,
+      9.999999776482582
+     ],
+     "area": 1255.1582596583758,
+     "surface": "cylinder",
+     "axis_point": [
+      20.0,
+      20.0,
+      20.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 9.999999999999998,
+     "reversed": false,
+     "step_match": []
+    }
+   ],
+   "nominal": 19.999999999999996,
+   "plus": 0.127,
+   "minus": -0.127,
+   "fit_code_dimxpert": "",
+   "display": {
+    "tol_type": 7,
+    "hole_fit": "H7",
+    "shaft_fit": ""
+   }
+  }
+ ]
+}

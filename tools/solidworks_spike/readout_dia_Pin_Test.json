@@ -1,0 +1,396 @@
+{
+ "assembly": "Pin_Test.SLDASM",
+ "solidworks": "34.4.1",
+ "read_s": 23.3,
+ "items": [
+  {
+   "part": "Plate_1",
+   "name": "Datum10@Plane1(A)",
+   "type": 150,
+   "feature": "Plane1",
+   "feature_type": 1,
+   "faces": [
+    {
+     "centroid": [
+      29.999974279533145,
+      9.99999977133683,
+      0.0
+     ],
+     "area": 1170.1165761253576,
+     "surface": "plane",
+     "normal": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "step_match": [
+      "Plate_1:2"
+     ]
+    }
+   ],
+   "datum": "A"
+  },
+  {
+   "part": "Plate_1",
+   "name": "Datum11@Plane2(B)",
+   "type": 150,
+   "feature": "Plane2",
+   "feature_type": 1,
+   "faces": [
+    {
+     "centroid": [
+      0.0,
+      9.99999977648258,
+      4.99999988824129
+     ],
+     "area": 199.99999105930337,
+     "surface": "plane",
+     "normal": [
+      -1.0,
+      -0.0,
+      -0.0
+     ],
+     "step_match": [
+      "Plate_1:3"
+     ]
+    }
+   ],
+   "datum": "B"
+  },
+  {
+   "part": "Plate_1",
+   "name": "Datum12@Plane3(C)",
+   "type": 150,
+   "feature": "Plane3",
+   "feature_type": 1,
+   "faces": [
+    {
+     "centroid": [
+      29.999999329447743,
+      0.0,
+      4.99999988824129
+     ],
+     "area": 599.9999731779101,
+     "surface": "plane",
+     "normal": [
+      -0.0,
+      -1.0,
+      -0.0
+     ],
+     "step_match": [
+      "Plate_1:4"
+     ]
+    }
+   ],
+   "datum": "C"
+  },
+  {
+   "part": "Plate_1",
+   "name": "Diameter1@Simple Hole1(6.2)",
+   "type": 109,
+   "feature": "Simple Hole1",
+   "feature_type": 7,
+   "faces": [
+    {
+     "centroid": [
+      30.000733164654108,
+      9.99999997839901,
+      4.99999988824129
+     ],
+     "area": 194.28187185467883,
+     "surface": "cylinder",
+     "axis_point": [
+      30.0,
+      10.0,
+      10.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 3.100000000000002,
+     "reversed": false,
+     "step_match": []
+    }
+   ],
+   "nominal": 6.200000000000004,
+   "plus": 0.05,
+   "minus": -0.05,
+   "fit_code_dimxpert": "",
+   "display": {
+    "tol_type": 2,
+    "hole_fit": "",
+    "shaft_fit": ""
+   }
+  },
+  {
+   "part": "Plate_1",
+   "name": "Position1@Simple Hole1",
+   "type": 201,
+   "feature": "Simple Hole1",
+   "feature_type": 7,
+   "faces": [
+    {
+     "centroid": [
+      30.000733164654108,
+      9.99999997839901,
+      4.99999988824129
+     ],
+     "area": 194.28187185467883,
+     "surface": "cylinder",
+     "axis_point": [
+      30.0,
+      10.0,
+      10.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 3.100000000000002,
+     "reversed": false,
+     "step_match": []
+    }
+   ],
+   "value_um": 100.0,
+   "material_condition": "none",
+   "datums": [
+    [],
+    [],
+    []
+   ],
+   "display_frame": [
+    "0.1",
+    "",
+    "A",
+    "B",
+    "C"
+   ],
+   "display_symbols": [
+    "<GTOL-POSI>",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ]
+  },
+  {
+   "part": "Pin",
+   "name": "Diameter1@Boss1(6)",
+   "type": 109,
+   "feature": "Boss1",
+   "feature_type": 2,
+   "faces": [
+    {
+     "centroid": [
+      30.0,
+      10.0,
+      9.999999776482579
+     ],
+     "area": 376.6396605155674,
+     "surface": "cylinder",
+     "axis_point": [
+      30.0,
+      10.0,
+      20.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 3.0000000000000004,
+     "reversed": true,
+     "step_match": []
+    }
+   ],
+   "nominal": 6.000000000000001,
+   "plus": 0.0,
+   "minus": -0.02,
+   "fit_code_dimxpert": "",
+   "display": {
+    "tol_type": 2,
+    "hole_fit": "",
+    "shaft_fit": ""
+   }
+  },
+  {
+   "part": "Plate_2",
+   "name": "Datum10@Plane1(A)",
+   "type": 150,
+   "feature": "Plane1",
+   "feature_type": 1,
+   "faces": [
+    {
+     "centroid": [
+      29.999974279533145,
+      9.99999977133683,
+      10.0
+     ],
+     "area": 1170.1165761253576,
+     "surface": "plane",
+     "normal": [
+      0.0,
+      0.0,
+      -1.0
+     ],
+     "step_match": [
+      "Plate_1:1",
+      "Plate_2:2"
+     ]
+    }
+   ],
+   "datum": "A"
+  },
+  {
+   "part": "Plate_2",
+   "name": "Datum11@Plane2(B)",
+   "type": 150,
+   "feature": "Plane2",
+   "feature_type": 1,
+   "faces": [
+    {
+     "centroid": [
+      0.0,
+      9.99999977648258,
+      14.99999988824129
+     ],
+     "area": 199.99999105930337,
+     "surface": "plane",
+     "normal": [
+      -1.0,
+      -0.0,
+      -0.0
+     ],
+     "step_match": [
+      "Plate_2:3"
+     ]
+    }
+   ],
+   "datum": "B"
+  },
+  {
+   "part": "Plate_2",
+   "name": "Datum12@Plane3(C)",
+   "type": 150,
+   "feature": "Plane3",
+   "feature_type": 1,
+   "faces": [
+    {
+     "centroid": [
+      29.999999329447743,
+      0.0,
+      14.99999988824129
+     ],
+     "area": 599.9999731779101,
+     "surface": "plane",
+     "normal": [
+      -0.0,
+      -1.0,
+      -0.0
+     ],
+     "step_match": [
+      "Plate_2:4"
+     ]
+    }
+   ],
+   "datum": "C"
+  },
+  {
+   "part": "Plate_2",
+   "name": "Diameter1@Simple Hole1(6.2)",
+   "type": 109,
+   "feature": "Simple Hole1",
+   "feature_type": 7,
+   "faces": [
+    {
+     "centroid": [
+      30.000733164654108,
+      9.99999997839901,
+      14.99999988824129
+     ],
+     "area": 194.28187185467883,
+     "surface": "cylinder",
+     "axis_point": [
+      30.0,
+      10.0,
+      20.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 3.100000000000002,
+     "reversed": false,
+     "step_match": []
+    }
+   ],
+   "nominal": 6.200000000000004,
+   "plus": 0.05,
+   "minus": -0.05,
+   "fit_code_dimxpert": "",
+   "display": {
+    "tol_type": 2,
+    "hole_fit": "",
+    "shaft_fit": ""
+   }
+  },
+  {
+   "part": "Plate_2",
+   "name": "Position1@Simple Hole1",
+   "type": 201,
+   "feature": "Simple Hole1",
+   "feature_type": 7,
+   "faces": [
+    {
+     "centroid": [
+      30.000733164654108,
+      9.99999997839901,
+      14.99999988824129
+     ],
+     "area": 194.28187185467883,
+     "surface": "cylinder",
+     "axis_point": [
+      30.0,
+      10.0,
+      20.0
+     ],
+     "axis": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "radius": 3.100000000000002,
+     "reversed": false,
+     "step_match": []
+    }
+   ],
+   "value_um": 100.0,
+   "material_condition": "none",
+   "datums": [
+    [],
+    [],
+    []
+   ],
+   "display_frame": [
+    "0.1",
+    "",
+    "A",
+    "B",
+    "C"
+   ],
+   "display_symbols": [
+    "<GTOL-POSI>",
+    "",
+    "",
+    "",
+    "",
+    ""
+   ]
+  }
+ ]
+}

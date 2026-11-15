@@ -223,9 +223,9 @@ def test_general_tolerance_golden_case_a_geometry() -> None:
             "basic size must be > 0",
         ),
         (
-            [{"id": "a", "nominal": 10.0, "tolerance_class": "g6", "sensitivity": 1.0}],
+            [{"id": "a", "nominal": 10.0, "tolerance_class": "N7", "sensitivity": 1.0}],
             {},
-            "fundamental deviation 'g' is not available",
+            "fundamental deviation 'N' is not available",
         ),
         (
             [{"id": "a", "nominal": 10.0, "upper_tol": 0.1, "lower_tol": -0.1,
@@ -261,5 +261,5 @@ def test_cli_limits() -> None:
     assert (
         gen.exit_code == 0 and "+/-0.2" in gen.output and "not yet been checked" not in gen.output
     )
-    bad = runner.invoke(app, ["limits", "25", "g6"])
+    bad = runner.invoke(app, ["limits", "25", "M7"])
     assert bad.exit_code == 2

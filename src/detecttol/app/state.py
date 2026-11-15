@@ -18,12 +18,15 @@ from detecttol.cad.cad_stack import (
     CadInput,
     CadStack,
     CadStackError,
+    FitCheck,
     MissingKey,
     build_cad_stack,
+    build_fit_check,
     missing_key,
     read_cad,
 )
 from detecttol.cad.pmi import FaceRef
+from detecttol.cad.round import FitLimits, ResolvedDiameter, RoundFeatureError, find_round
 from detecttol.core.models import AnalysisConfig, DrawingStandard, MonteCarloConfig
 from detecttol.core.results import StackResult
 from detecttol.standards.general import GeneralClass
@@ -31,6 +34,7 @@ from detecttol.standards.general import GeneralClass
 PROJECT_VERSION = 1
 CAD_SUFFIXES = (".sldasm", ".step", ".stp")
 RowKind = Literal["cad", "table", "user", "missing", "gdt"]
+Mode = Literal["gap", "fit"]
 
 
 @dataclass(frozen=True)
@@ -83,8 +87,14 @@ def _one_in(p: float) -> str:
     return f"about 1 in {1.0 / p:,.0f}"
 
 
-def verdict(result: StackResult) -> Verdict:
-    """Plain-words verdict of a result (spec limits from the result itself)."""
+def verdict(result: StackResult, fit: FitLimits | None = None) -> Verdict:
+    """Plain-words verdict of a result (spec limits from the result itself).
+
+    With ``fit`` (a hole/shaft fit check) the value is the clearance, and the
+    headline names the kind of fit.
+    """
+    if fit is not None:
+        return _fit_verdict(result, fit)
     limits = []
     if result.lsl is not None:
         limits.append(f"at least {_fmt(result.lsl)} mm")
@@ -142,6 +152,43 @@ def verdict(result: StackResult) -> Verdict:
     return Verdict("risk", "No worst-case result was computed.", tuple(details))
 
 
+def _fit_verdict(result: StackResult, fit: FitLimits) -> Verdict:
+    base = verdict(result)
+    kind = fit.kind.capitalize()
+    span = f"{_fmt(fit.min_clearance)} to {_fmt(fit.max_clearance)} mm"
+    details = (
+        f"{kind} fit (IS 919 / ISO 286): clearance from {span}; a negative clearance is an"
+        " interference.",
+        *base.details,
+    )
+    if base.level == "ok":
+        return Verdict(
+            "ok", f"{kind} fit, always meets the requirement: clearance {span}.", details
+        )
+    wc = result.worst_case
+    if base.level == "fail":
+        return Verdict(
+            "fail",
+            f"{kind} fit: the requirement fails even at mid-tolerance (clearance"
+            f" {_fmt(result.mean)} mm).",
+            details,
+        )
+    side = span if wc is None else _fmt(wc.lower if result.lsl is not None else wc.upper) + " mm"
+    return Verdict("risk", f"{kind} fit: can fail, the clearance can reach {side}.", details)
+
+
+def _diameter_kind(dia: ResolvedDiameter) -> tuple[RowKind, str]:
+    source = dia.tolerance_source or ""
+    if dia.cad_source:
+        detail = f"; {source}" if source else ""
+        return "cad", f"{dia.cad_source}{detail}"
+    if source.startswith("entered by the user"):
+        return "user", "entered by you"
+    if source.startswith("NEEDS A VALUE"):
+        return "missing", "no tolerance in the model: enter one"
+    return "table", source or "input"
+
+
 @dataclass
 class AppState:
     """One engineer's session: a model, a requirement, edits, and the last result."""
@@ -152,6 +199,10 @@ class AppState:
     face_from: FaceRef | None = None
     face_to: FaceRef | None = None
     picking: Literal["from", "to"] = "from"
+    mode: Mode = "gap"
+    hole: FaceRef | None = None
+    shaft: FaceRef | None = None
+    fit: FitCheck | None = None
     lsl: float | None = 0.0
     usl: float | None = None
     standard: DrawingStandard = "is"
@@ -173,33 +224,75 @@ class AppState:
         cad = read_cad(p, list(drawings))
         self.cad, self.cad_file, self.drawings = cad, p, [Path(d) for d in drawings]
         self.face_from = self.face_to = None
+        self.hole = self.shaft = None
         self.picking = "from"
         self.overrides.clear()
-        self.built = self.result = None
+        self.built = self.result = self.fit = None
         self.error = None
 
     def summary(self) -> str:
         if self.cad is None:
             return "No model open."
         n_parts = len(self.cad.model.parts)
+        round_found = ""
+        if self.cad.diameters or self.cad.positions:
+            round_found = (
+                f", {len(self.cad.diameters)} diameters, {len(self.cad.positions)} positions"
+            )
         return (
             f"{n_parts} parts; tolerances found ({self.cad.origin}): {len(self.cad.dimensions)}"
-            f" dimensions, {len(self.cad.flatness)} flatness."
+            f" dimensions, {len(self.cad.flatness)} flatness{round_found}."
         )
 
     def face_label(self, ref: FaceRef | None) -> str:
         if ref is None or self.cad is None:
             return "not chosen"
         face = self.cad.model.part(ref.part).faces[ref.face_index]
+        if face.cylinder is not None:
+            feature = find_round(self.cad.model, ref)
+            return f"{ref.part}:{feature.face} ({feature.kind} dia {feature.diameter:g})"
         n = face.normal or (0.0, 0.0, 0.0)
         return f"{ref.part}:{ref.face_index} (normal {tuple(round(v, 3) + 0.0 for v in n)})"
+
+    def set_mode(self, mode: Mode) -> None:
+        """Switch between a gap between two faces and a hole/shaft fit."""
+        if mode != self.mode:
+            self.mode = mode
+            self.result = None
+            self.refresh()
 
     # -- requirement -------------------------------------------------------------------
 
     def pick(self, key: str) -> None:
-        """A face was clicked (``PART:FACE``): set the face being picked, then switch."""
+        """A face was clicked (``PART:FACE``).
+
+        Gap mode: set face 1 or face 2 (alternating); a round face is refused with a
+        hint. Fit mode: a hole face sets the hole, a pin/shaft face the shaft.
+
+        Raises:
+            CadStackError: the face does not fit the mode (nothing is changed).
+        """
         part, _, index = key.rpartition(":")
         ref = FaceRef(part, int(index))
+        face = None if self.cad is None else self.cad.model.part(part).faces[ref.face_index]
+        round_face = face is not None and face.cylinder is not None
+        if self.mode == "fit":
+            if not round_face or self.cad is None:
+                raise CadStackError(f"{key} is not a hole or a shaft; click a round face")
+            feature = find_round(self.cad.model, ref)
+            chosen = FaceRef(part, feature.face)
+            if feature.internal:
+                self.hole = chosen
+            else:
+                self.shaft = chosen
+            self.result = None
+            self.refresh()
+            return
+        if round_face:
+            raise CadStackError(
+                f"{self.face_label(ref)} is round: a gap is measured between flat faces."
+                " Use the Fit check for a hole and a shaft."
+            )
         if self.picking == "from":
             self.face_from, self.picking = ref, "to"
         else:
@@ -213,8 +306,11 @@ class AppState:
         self.refresh()
 
     def refresh(self) -> None:
-        """Rebuild the chain after any change; errors go to ``self.error``."""
-        self.built, self.error = None, None
+        """Rebuild the chain (or the fit) after any change; errors go to ``self.error``."""
+        self.built, self.fit, self.error = None, None, None
+        if self.mode == "fit":
+            self._refresh_fit()
+            return
         if self.cad is None or self.face_from is None or self.face_to is None:
             return
         try:
@@ -239,9 +335,53 @@ class AppState:
         except (CadStackError, ValueError) as exc:
             self.error = str(exc)
 
+    def _refresh_fit(self) -> None:
+        if self.cad is None or self.hole is None or self.shaft is None:
+            return
+        try:
+            self.fit = build_fit_check(
+                self.cad,
+                self.hole,
+                self.shaft,
+                lsl=self.lsl,
+                usl=self.usl,
+                general_class=self.general_class,
+                analysis=AnalysisConfig(
+                    methods=["worst_case", "rss", "monte_carlo"],
+                    monte_carlo=MonteCarloConfig(n=self.samples, seed=self.seed),
+                ),
+                overrides=self.overrides,
+                placeholder_missing=True,
+            )
+        except (CadStackError, RoundFeatureError, ValueError) as exc:
+            self.error = str(exc)
+
+    @property
+    def needs_value(self) -> int:
+        """Rows still waiting for a tolerance."""
+        if self.mode == "fit":
+            return len(self.fit.needs_value) if self.fit else 0
+        return len(self.built.needs_value) if self.built else 0
+
     # -- table ------------------------------------------------------------------------
 
+    def _diameter_row(self, dia: ResolvedDiameter, sensitivity: float) -> ChainRow:
+        kind, source = _diameter_kind(dia)
+        key = None if kind == "cad" else (dia.part, dia.face, dia.face)
+        what = "hole" if dia.internal else "pin"
+        return ChainRow(
+            dia.id, dia.part, f"{what} dia ({dia.face})", dia.nominal, dia.upper_tol,
+            dia.lower_tol, sensitivity, source, kind, key,
+        )  # fmt: skip
+
     def rows(self) -> list[ChainRow]:
+        if self.mode == "fit":
+            if self.fit is None:
+                return []
+            return [
+                self._diameter_row(self.fit.hole, 1.0),
+                self._diameter_row(self.fit.shaft, -1.0),
+            ]
         if self.built is None:
             return []
         missing = {missing_key(m) for m in self.built.needs_value}
@@ -249,9 +389,16 @@ class AppState:
         for link in self.built.chain.links:
             c = link.contributor
             key = None
-            if c.cad_source:
-                kind: RowKind = "cad"
+            if c.id.startswith("float "):
+                # white only when both diameters came from the model
+                filled = {d.id for d in self.built.chain.filled_diameters}
+                kind = "table" if any(f" {i}" in c.id for i in filled) else "cad"
+                source = c.tolerance_source or c.id
+            elif c.cad_source:
+                kind = "cad"
                 source = c.cad_source
+                if c.tolerance_source and c.tolerance_source.startswith("position"):
+                    source = f"{c.cad_source}: {c.tolerance_source}"
             elif c.tolerance_source and c.tolerance_source.startswith("entered by the user"):
                 kind, source = "user", "entered by you"
             elif c.tolerance_source and c.tolerance_source.startswith("NEEDS A VALUE"):
@@ -267,7 +414,9 @@ class AppState:
                 ChainRow(
                     c.id,
                     link.part,
-                    f"{link.from_face} -> {link.to_face}",
+                    f"hole {link.from_face} / pin {link.to_face}"
+                    if c.id.startswith("float ")
+                    else f"{link.from_face} -> {link.to_face}",
                     c.nominal,
                     c.upper_tol,
                     c.lower_tol,
@@ -277,6 +426,9 @@ class AppState:
                     key,
                 )
             )
+        # diameters the chain needed but the model did not tolerance (editable)
+        for dia in self.built.chain.filled_diameters:
+            rows.append(self._diameter_row(dia, 0.0))
         if self.built.gdt is not None:
             gdt = self.built.gdt
             used = gdt.linear_contributors()[len(gdt.stack.contributors) :]
@@ -304,10 +456,20 @@ class AppState:
     # -- analysis ---------------------------------------------------------------------
 
     def analyze(self) -> StackResult:
+        if self.mode == "fit":
+            if self.fit is None:
+                raise CadStackError(self.error or "choose a hole and a shaft first")
+            self.result = self.fit.analyze()
+            return self.result
         if self.built is None:
             raise CadStackError(self.error or "choose two faces first")
         self.result = self.built.analyze()
         return self.result
+
+    def verdict(self) -> Verdict:
+        if self.result is None:
+            raise CadStackError("analyse first")
+        return verdict(self.result, self.fit.limits if self.mode == "fit" and self.fit else None)
 
     def report_html(self) -> str:
         from detecttol import __version__
@@ -332,6 +494,9 @@ class AppState:
             "drawings": [str(d) for d in self.drawings],
             "from": [self.face_from.part, self.face_from.face_index] if self.face_from else None,
             "to": [self.face_to.part, self.face_to.face_index] if self.face_to else None,
+            "mode": self.mode,
+            "hole": [self.hole.part, self.hole.face_index] if self.hole else None,
+            "shaft": [self.shaft.part, self.shaft.face_index] if self.shaft else None,
             "lsl": self.lsl,
             "usl": self.usl,
             "standard": self.standard,
@@ -367,6 +532,11 @@ class AppState:
         if data["from"] and data["to"]:
             state.face_from = FaceRef(data["from"][0], int(data["from"][1]))
             state.face_to = FaceRef(data["to"][0], int(data["to"][1]))
+        state.mode = data.get("mode", "gap")
+        if data.get("hole"):
+            state.hole = FaceRef(data["hole"][0], int(data["hole"][1]))
+        if data.get("shaft"):
+            state.shaft = FaceRef(data["shaft"][0], int(data["shaft"][1]))
         state.refresh()
         return state
 
