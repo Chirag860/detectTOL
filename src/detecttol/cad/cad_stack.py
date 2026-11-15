@@ -14,6 +14,13 @@ does not tolerance gets the drawing's general tolerance (IS 2102 / ISO 2768-1)
 when one is given, otherwise the tool stops and names it. Flatness on a face of
 the chain is converted under the chosen drawing standard (ASME: contained in the
 size; ISO / IS: adds +/- t/2 unless the envelope requirement applies).
+
+Round features: a pin in a hole on the way adds its float, a hole's position
+tolerance links it to its datum plane (:mod:`detecttol.cad.round`). A diameter
+without a CAD tolerance is filled like a dimension (user value, general class,
+or a placeholder); it is listed as a :class:`MissingDimension` whose two faces
+are the same (the feature's representative face) and whose nominal is the
+diameter. :func:`build_fit_check` checks the fit of one hole and one shaft.
 """
 
 from __future__ import annotations
@@ -27,6 +34,16 @@ from detecttol.cad.annotations import ResolvedDimension
 from detecttol.cad.chain import Chain, ChainLink, MissingDimension, build_chain
 from detecttol.cad.mapping import _ANGULAR_DIMENSION_KINDS
 from detecttol.cad.pmi import FaceRef
+from detecttol.cad.round import (
+    FitLimits,
+    ResolvedDiameter,
+    ResolvedPosition,
+    RoundFeature,
+    RoundFeatureError,
+    classify_fit,
+    find_round,
+    fit_stack,
+)
 from detecttol.cad.step_reader import StepModel, read_step
 from detecttol.core.analyze import analyze
 from detecttol.core.models import AnalysisConfig, DrawingStandard, Requirement, Stack
@@ -54,6 +71,8 @@ class CadInput:
     flatness: tuple[tuple[Flatness, FaceRef], ...]
     notes: tuple[str, ...]
     origin: str
+    diameters: tuple[ResolvedDiameter, ...] = ()
+    positions: tuple[ResolvedPosition, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -185,7 +204,15 @@ def read_cad(
         except (SolidWorksError, SolidWorksResolveError) as exc:
             raise CadStackError(str(exc)) from exc
         origin = f"SolidWorks {readout.data.solidworks_revision}"
-        return CadInput(model, resolved.dimensions, resolved.flatness, resolved.notes, origin)
+        return CadInput(
+            model,
+            resolved.dimensions,
+            resolved.flatness,
+            resolved.notes,
+            origin,
+            diameters=resolved.diameters,
+            positions=resolved.positions,
+        )
     raise CadStackError(f"{p.name}: expected .SLDASM, .step or .stp")
 
 
@@ -282,8 +309,20 @@ def build_cad_stack(
             + " (no tolerance on these faces in the CAD model)",
         )
 
+    def fill_diameter(feature: RoundFeature) -> ResolvedDiameter | None:
+        return _fill_diameter(feature, general_class, overrides, placeholder_missing, needs_value)
+
     try:
-        chain = build_chain(cad.model, face_from, face_to, list(cad.dimensions), fill_missing=fill)
+        chain = build_chain(
+            cad.model,
+            face_from,
+            face_to,
+            list(cad.dimensions),
+            fill_missing=fill,
+            diameters=list(cad.diameters),
+            positions=list(cad.positions),
+            fill_diameter=fill_diameter,
+        )
     except ChainError as exc:
         hint = "" if general_class else " (or give a general tolerance class, e.g. --general m)"
         raise CadStackError(f"chain: {exc}{hint}") from exc
@@ -319,14 +358,144 @@ def build_cad_stack(
             callout = callout.model_copy(update={"within_size": False})
         callouts.append(callout)
     gdt = GdtStack(stack=stack, callouts=callouts, standard=standard) if callouts else None
-    notes = tuple(combined)
+    notes = (*chain.notes, *combined)
     return CadStack(
         stack=stack, gdt=gdt, chain=chain, cad=cad, notes=notes, needs_value=tuple(needs_value)
     )
 
 
 #: ``(part, lower face index, higher face index)``: a missing dimension, either direction.
+#: A diameter uses its representative face twice.
 MissingKey = tuple[str, int, int]
+
+
+def _fill_diameter(
+    feature: RoundFeature,
+    general_class: GeneralClass | None,
+    overrides: Mapping[MissingKey, tuple[float, float]] | None,
+    placeholder_missing: bool,
+    needs_value: list[MissingDimension],
+) -> ResolvedDiameter | None:
+    """A diameter tolerance from the user, the general class, or a placeholder."""
+    key = (feature.part, feature.face, feature.face)
+    nominal = round(feature.diameter, 9)
+
+    def made(upper: float, lower: float, source: str, kind: str) -> ResolvedDiameter:
+        return ResolvedDiameter(
+            id=f"{feature.part}:{kind}_dia_{feature.face}",
+            part=feature.part,
+            face=feature.face,
+            nominal=nominal,
+            upper_tol=upper,
+            lower_tol=lower,
+            internal=feature.internal,
+            tolerance_source=source,
+        )
+
+    if overrides and key in overrides:
+        upper, lower = overrides[key]
+        if upper < lower:
+            raise CadStackError(f"{feature.describe()}: upper {upper} < lower {lower}")
+        return made(upper, lower, "entered by the user (no tolerance in the CAD model)", "user")
+    if general_class is None:
+        if placeholder_missing:
+            needs_value.append(MissingDimension(feature.part, feature.face, feature.face, nominal))
+            return made(0.0, 0.0, "NEEDS A VALUE (no tolerance in the CAD model)", "missing")
+        return None
+    try:
+        d = general.general_deviation(nominal, general_class)
+    except general.GeneralToleranceError as exc:
+        raise CadStackError(f"{feature.describe()}: {exc}") from exc
+    source = (
+        general.describe(nominal, general_class)
+        + " (no tolerance on this diameter in the CAD model)"
+    )
+    return made(d, -d, source, "general")
+
+
+@dataclass(frozen=True)
+class FitCheck:
+    """A hole/shaft fit read from a CAD file.
+
+    Attributes:
+        stack: clearance stack ``D_hole - d_shaft``.
+        limits: smallest / largest clearance and the kind of fit.
+        hole / shaft: the two diameters used.
+        needs_value: diameters still waiting for a tolerance (placeholder mode).
+    """
+
+    stack: Stack
+    limits: FitLimits
+    hole: ResolvedDiameter
+    shaft: ResolvedDiameter
+    needs_value: tuple[MissingDimension, ...] = ()
+
+    def analyze(self) -> StackResult:
+        if self.needs_value:
+            listed = ", ".join(f"{m.part} dia {m.nominal:g}" for m in self.needs_value)
+            raise CadStackError(f"enter a tolerance first for: {listed}")
+        return analyze(self.stack)
+
+
+def build_fit_check(
+    cad: CadInput,
+    hole_face: FaceRef,
+    shaft_face: FaceRef,
+    *,
+    lsl: float | None = 0.0,
+    usl: float | None = None,
+    general_class: GeneralClass | None = None,
+    analysis: AnalysisConfig | None = None,
+    overrides: Mapping[MissingKey, tuple[float, float]] | None = None,
+    placeholder_missing: bool = False,
+) -> FitCheck:
+    """Fit of the hole at ``hole_face`` and the shaft at ``shaft_face``.
+
+    Either face of a round feature may be given. The default requirement is a
+    clearance >= 0 (the shaft always goes in).
+
+    Raises:
+        CadStackError: a face is not round, the hole is a pin (or the shaft a
+            hole), the two are of the same part, or a diameter has no tolerance.
+    """
+    if lsl is None and usl is None:
+        raise CadStackError("give at least one of lsl / usl")
+    try:
+        hole = find_round(cad.model, hole_face)
+        shaft = find_round(cad.model, shaft_face)
+    except RoundFeatureError as exc:
+        raise CadStackError(str(exc)) from exc
+    if not hole.internal:
+        raise CadStackError(f"{hole.describe()} is not a hole")
+    if shaft.internal:
+        raise CadStackError(f"{shaft.describe()} is not a shaft or pin")
+    needs_value: list[MissingDimension] = []
+    sizes = {(d.part, d.face): d for d in cad.diameters}
+    chosen = []
+    for feature in (hole, shaft):
+        dia = sizes.get((feature.part, feature.face))
+        if dia is None:
+            dia = _fill_diameter(
+                feature, general_class, overrides, placeholder_missing, needs_value
+            )
+        if dia is None:
+            raise CadStackError(
+                f"no tolerance for the diameter of {feature.describe()}: add a diameter"
+                " annotation, or give a general tolerance class (e.g. --general m)"
+            )
+        chosen.append(dia)
+    hole_dia, shaft_dia = chosen
+    try:
+        stack = fit_stack(hole_dia, shaft_dia, lsl=lsl, usl=usl, analysis=analysis)
+    except RoundFeatureError as exc:
+        raise CadStackError(str(exc)) from exc
+    return FitCheck(
+        stack=stack,
+        limits=classify_fit(hole_dia, shaft_dia),
+        hole=hole_dia,
+        shaft=shaft_dia,
+        needs_value=tuple(needs_value),
+    )
 
 
 def missing_key(missing: MissingDimension) -> MissingKey:

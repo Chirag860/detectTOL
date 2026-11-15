@@ -120,15 +120,18 @@ def faces(
         typer.Option("--drawing", "-d", help="SolidWorks drawing (.SLDDRW) to read too."),
     ] = None,
 ) -> None:
-    """List the planar faces of a model, with the tolerances found on each.
+    """List the planar faces and the holes / pins of a model, with their tolerances.
 
-    Each entry gives part name, face index, centroid [mm] and outward normal; use
-    `PART:FACE` with `detecttol analyze-cad`, or copy the entry into an annotation
-    file. A SolidWorks assembly is read through the installed SolidWorks
-    (read-only; about 20 s). Needs pythonocc-core (conda-forge).
+    Each face entry gives part name, face index, centroid [mm] and outward normal;
+    use `PART:FACE` with `detecttol analyze-cad`, or copy the entry into an
+    annotation file. Each round entry gives the hole or pin with its diameter and
+    axis; use its `PART:FACE` with `detecttol fit-cad`. A SolidWorks assembly is
+    read through the installed SolidWorks (read-only; about 20 s). Needs
+    pythonocc-core (conda-forge).
     """
     cad_stack = _cad_modules()
     from detecttol.cad.annotations import face_table
+    from detecttol.cad.round import round_features
     from detecttol.cad.step_reader import StepReadError
 
     try:
@@ -153,6 +156,12 @@ def faces(
         f"# usable tolerances from {cad.origin}:"
         f" {len(cad.dimensions)} dimensions, {len(cad.flatness)} flatness",
     ]
+    features = [f for part in model.parts for f in round_features(part)]
+    if features or cad.diameters or cad.positions:
+        lines.append(
+            f"# round features (holes / pins): {len(features)}; usable: {len(cad.diameters)}"
+            f" diameters, {len(cad.positions)} positions"
+        )
     lines += [f"# note: {note}" for note in (*model.notes, *cad.notes)]
     lines.append("faces:")
     for row in face_table(model):
@@ -163,6 +172,29 @@ def faces(
             f" centroid: {row['centroid']}, normal: {row['normal']}}}"
             f"  # area {row['area']} mm^2{tail}"
         )
+    if features:
+        on_round: dict[tuple[str, int], list[str]] = {}
+        for dia in cad.diameters:
+            fit = f" ({dia.fit_code})" if dia.fit_code else ""
+            on_round.setdefault((dia.part, dia.face), []).append(
+                f"{dia.id} dia {dia.nominal:g}{fit} {dia.upper_tol:+g}/{dia.lower_tol:+g}"
+            )
+        for pos in cad.positions:
+            datums = "|".join(f"{d.part}:{d.face_index}" for d in pos.datums) or "no datums"
+            on_round.setdefault((pos.part, pos.face), []).append(
+                f"{pos.id} position dia {pos.tolerance:g} {pos.material_condition} to {datums}"
+            )
+        lines.append("round:")
+        for f in features:
+            found = on_round.get((f.part, f.face), [])
+            tail = f"; {'; '.join(found)}" if found else ""
+            axis = [round(v, 6) + 0.0 for v in f.axis]
+            point = [round(v, 6) + 0.0 for v in f.axis_point]
+            lines.append(
+                f"  - {{part: {json.dumps(f.part)}, face: {f.face}, kind: {f.kind},"
+                f" diameter: {round(f.diameter, 6):g}, axis_point: {point}, axis: {axis}}}"
+                f"  # faces {list(f.faces)}{tail}"
+            )
     typer.echo("\n".join(lines))
 
 
@@ -260,6 +292,81 @@ def analyze_cad(
         input_file=cad_file.as_posix(),
     )
     _write(report, result, built.stack.name, fmt, out)
+
+
+@app.command("fit-cad")
+def fit_cad(
+    cad_file: Annotated[
+        Path, typer.Argument(help="SolidWorks assembly (.SLDASM) or STEP file (.step / .stp).")
+    ],
+    hole: Annotated[str, typer.Option("--hole", help="A face of the hole, PART:FACE.")],
+    shaft: Annotated[str, typer.Option("--shaft", help="A face of the shaft or pin, PART:FACE.")],
+    drawing: Annotated[
+        list[Path] | None,
+        typer.Option("--drawing", "-d", help="SolidWorks drawing (.SLDDRW) to read too."),
+    ] = None,
+    lsl: Annotated[
+        float | None,
+        typer.Option(help="Smallest allowed clearance [mm]; default 0 (the shaft always fits)."),
+    ] = None,
+    usl: Annotated[float | None, typer.Option(help="Largest allowed clearance [mm].")] = None,
+    general_class: Annotated[
+        str | None,
+        typer.Option("--general", "-g", help="General tolerance class f/m/c/v for diameters."),
+    ] = None,
+    samples: Annotated[int, typer.Option(help="Monte Carlo samples.")] = 100_000,
+    seed: Annotated[int, typer.Option(help="Monte Carlo seed.")] = 42,
+    fmt: Annotated[
+        OutputFormat, typer.Option("--format", "-f", help="Report format.")
+    ] = OutputFormat.md,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", "-o", help="Output directory. Without it the report goes to stdout."),
+    ] = None,
+) -> None:
+    """Check the fit of a hole and a shaft: clearance = hole diameter - shaft diameter.
+
+    Example: `detecttol fit-cad Fit_Test.SLDASM --hole Housing:0 --shaft Shaft:0`.
+    Prints the kind of fit (clearance / transition / interference) and the limit
+    clearances, then the report. Face numbers come from `detecttol faces` (round:).
+    """
+    cad_stack = _cad_modules()
+    from detecttol.cad.step_reader import StepReadError
+
+    try:
+        general_checked = check_general_class(general_class)
+        cad = cad_stack.read_cad(cad_file, drawing or ())
+        check = cad_stack.build_fit_check(
+            cad,
+            cad_stack.parse_face(hole),
+            cad_stack.parse_face(shaft),
+            lsl=0.0 if lsl is None and usl is None else lsl,
+            usl=usl,
+            general_class=general_checked,
+            analysis=AnalysisConfig(
+                methods=["worst_case", "rss", "monte_carlo"],
+                monte_carlo=MonteCarloConfig(n=samples, seed=seed),
+            ),
+        )
+    except (cad_stack.CadStackError, StepReadError, ValueError) as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(EXIT_INPUT_ERROR) from exc
+    for note in cad.notes:
+        typer.echo(f"note: {note}", err=True)
+    limits_ = check.limits
+    typer.echo(
+        f"fit: {limits_.kind} fit; clearance from {limits_.min_clearance:g} to"
+        f" {limits_.max_clearance:g} mm (hole {check.hole.id}, shaft {check.shaft.id})",
+        err=True,
+    )
+    result = check.analyze()
+    report = build_report(
+        result,
+        version=detecttol.__version__,
+        generated_at=_timestamp(),
+        input_file=cad_file.as_posix(),
+    )
+    _write(report, result, _safe_name(f"{cad_file.stem}_fit"), fmt, out)
 
 
 @app.command()

@@ -15,8 +15,9 @@ from typing import Any
 from fastapi import Response
 from nicegui import Client, app, run, ui
 
-from detecttol.app.state import CAD_SUFFIXES, AppState, verdict
+from detecttol.app.state import CAD_SUFFIXES, AppState
 from detecttol.cad.cad_stack import CadStackError
+from detecttol.cad.round import round_features
 
 _MESHES: dict[str, dict[int, bytes]] = {}  # token -> mesh number -> STL bytes
 _TOKENS = itertools.count(1)
@@ -26,6 +27,9 @@ COLOR_OTHER = "#d5d8dc"
 COLOR_FROM, COLOR_TO, COLOR_CHAIN = "#1f6feb", "#e8590c", "#2f9e44"
 LEVEL_COLOR = {"ok": "positive", "risk": "warning", "fail": "negative"}
 STANDARDS = {"is": "IS (Indian Standards)", "iso": "ISO GPS", "asme": "ASME Y14.5"}
+MODES = {"gap": "Gap between two faces", "fit": "Fit check (hole + shaft)"}
+#: Longest wait for reading a model (SolidWorks start + read is normally 10-40 s).
+READ_TIMEOUT_S = 180.0
 GENERAL = {
     "": "none (ask me)",
     "f": "f (fine)",
@@ -41,6 +45,11 @@ def _mesh(token: str, number: int) -> Response:
     if data is None:
         return Response(status_code=404)
     return Response(content=data, media_type="model/stl")
+
+
+def md(text: str) -> str:
+    """Text shown inside ui.markdown, with Markdown's special characters escaped."""
+    return "".join("\\" + ch if ch in r"\`*_{}[]<>()#+-.!|" else ch for ch in text)
 
 
 def _start_folder() -> Path:
@@ -76,12 +85,19 @@ def page() -> None:
 
             with ui.card().classes("w-full"):
                 ui.label("2. Choose the requirement").classes("font-medium")
-                ui.label(
-                    "Click a face in the 3D view for face 1, then for face 2 — or pick them from the lists."
-                ).classes("text-sm")
+                mode_in = ui.toggle(MODES, value="gap").props("dense no-caps")
+                help_label = ui.label("").classes("text-sm")
                 faces_label = ui.markdown("")
-                from_in = ui.select({}, label="Face 1", with_input=True).classes("w-full")
-                to_in = ui.select({}, label="Face 2", with_input=True).classes("w-full")
+                gap_box = ui.column().classes("w-full gap-1")
+                with gap_box:
+                    from_in = ui.select({}, label="Face 1", with_input=True).classes("w-full")
+                    to_in = ui.select({}, label="Face 2", with_input=True).classes("w-full")
+                fit_box = ui.column().classes("w-full gap-1")
+                with fit_box:
+                    hole_in = ui.select({}, label="Hole", with_input=True).classes("w-full")
+                    shaft_in = ui.select({}, label="Shaft or pin", with_input=True).classes(
+                        "w-full"
+                    )
                 with ui.row().classes("w-full"):
                     lsl_in = ui.number("Lower limit (mm)", value=0.0, format="%.4g").classes("w-36")
                     usl_in = ui.number("Upper limit (mm)", value=None, format="%.4g").classes(
@@ -94,7 +110,9 @@ def page() -> None:
                     GENERAL, value="m", label="General tolerance for untoleranced dimensions"
                 ).classes("w-full")
                 with ui.row():
-                    ui.button("Swap faces", on_click=lambda: swap()).props("flat dense")
+                    swap_button = ui.button("Swap faces", on_click=lambda: swap()).props(
+                        "flat dense"
+                    )
                     ui.button("Save project", on_click=lambda: save_project()).props("flat dense")
 
         # ---------------- right: 3D, table, result -------------------------------------
@@ -158,14 +176,24 @@ def page() -> None:
         )
         spinner = ui.notification(status.text, spinner=True, timeout=None)
         try:
+            # SolidWorks may wait on a dialog of its own; do not spin for ever
             if path.suffix.lower() == ".dtol":
-                state = await run.io_bound(AppState.load, path)
+                state = await asyncio.wait_for(run.io_bound(AppState.load, path), READ_TIMEOUT_S)
             else:
-                await run.io_bound(state.open, path, drawings)
+                await asyncio.wait_for(run.io_bound(state.open, path, drawings), READ_TIMEOUT_S)
             from detecttol.cad.mesh import bounds, mesh_model, to_stl
 
             assert state.cad is not None
             meshes = await run.io_bound(mesh_model, state.cad.model.path)
+        except TimeoutError:
+            status.text = (
+                f"{path.name}: no answer from SolidWorks after {READ_TIMEOUT_S:.0f} s. Look for"
+                " a SolidWorks window or message waiting for you (or close SolidWorks), then"
+                " open the file again."
+            )
+            status.classes(replace="text-sm text-negative")
+            spinner.dismiss()
+            return
         except (CadStackError, OSError, ValueError, RuntimeError) as exc:
             status.text = f"Could not open {path.name}: {exc}"
             status.classes(replace="text-sm text-negative")
@@ -203,9 +231,47 @@ def page() -> None:
         view["face_options"] = face_options()
         from_in.set_options(dict(view["face_options"]), value=None)
         to_in.set_options(dict(view["face_options"]), value=None)
+        holes, shafts = round_options()
+        view["round_options"] = {**holes, **shafts}
+        view["round_faces"] = round_faces()
+        hole_in.set_options(holes, value=None)
+        shaft_in.set_options(shafts, value=None)
         lsl_in.value, usl_in.value = state.lsl, state.usl
         std_in.value, gen_in.value = state.standard, state.general_class or ""
+        mode_in.value = state.mode
         redraw()
+
+    def round_faces() -> dict[str, list[str]]:
+        """Representative ``PART:FACE`` of each hole / pin -> all its face keys."""
+        assert state.cad is not None
+        return {
+            f"{f.part}:{f.face}": [f"{f.part}:{i}" for i in f.faces]
+            for part in state.cad.model.parts
+            for f in round_features(part)
+        }
+
+    def round_options() -> tuple[dict[str, str], dict[str, str]]:
+        assert state.cad is not None
+        found: dict[tuple[str, int], list[str]] = {}
+        for d in state.cad.diameters:
+            fit = f" {d.fit_code}" if d.fit_code else ""
+            found.setdefault((d.part, d.face), []).append(
+                f"dia {d.nominal:g}{fit} {d.upper_tol:+g}/{d.lower_tol:+g}"
+            )
+        for pos in state.cad.positions:
+            found.setdefault((pos.part, pos.face), []).append(
+                f"position {pos.tolerance:g} {pos.material_condition}"
+            )
+        holes: dict[str, str] = {}
+        shafts: dict[str, str] = {}
+        for part in state.cad.model.parts:
+            for f in round_features(part):
+                tol = found.get((f.part, f.face))
+                text = f"{f.part}:{f.face}  {f.kind} dia {f.diameter:g}" + (
+                    f"  [{'; '.join(tol)}]" if tol else ""
+                )
+                (holes if f.internal else shafts)[f"{f.part}:{f.face}"] = text
+        return holes, shafts
 
     def face_options() -> dict[str, str]:
         assert state.cad is not None
@@ -240,11 +306,35 @@ def page() -> None:
         if current is not None and f"{current.part}:{current.face_index}" == key:
             return  # the list was only updated to show a 3D pick
         state.picking = "from" if which == "from" else "to"
-        state.pick(key)
-        redraw()
+        try_pick(key)
 
     from_in.on_value_change(lambda e: on_select("from", e.value))
     to_in.on_value_change(lambda e: on_select("to", e.value))
+
+    def on_round_select(which: str, key: str | None) -> None:
+        if not key or state.cad is None:
+            return
+        current = state.hole if which == "hole" else state.shaft
+        if current is not None and f"{current.part}:{current.face_index}" == key:
+            return
+        try_pick(key)
+
+    hole_in.on_value_change(lambda e: on_round_select("hole", e.value))
+    shaft_in.on_value_change(lambda e: on_round_select("shaft", e.value))
+
+    def on_mode() -> None:
+        state.set_mode(mode_in.value or "gap")
+        redraw()
+
+    mode_in.on_value_change(lambda _e: on_mode())
+
+    def try_pick(key: str) -> None:
+        try:
+            state.pick(key)
+        except CadStackError as exc:
+            ui.notify(str(exc), type="warning")
+            return
+        redraw()
 
     def on_typed(which: str, box: Any, text: Any) -> None:
         """Typing an exact face name (e.g. Frame:4) chooses it, no click needed."""
@@ -256,14 +346,24 @@ def page() -> None:
     from_in.on("input-value", lambda e: on_typed("from", from_in, e.args))
     to_in.on("input-value", lambda e: on_typed("to", to_in, e.args))
 
+    def on_typed_round(which: str, box: Any, text: Any) -> None:
+        """Typing a hole / shaft name (e.g. Housing:0, either half face) chooses it."""
+        key = str(text or "").strip()
+        rep = next((r for r, keys in view.get("round_faces", {}).items() if key in keys), None)
+        if rep is not None and rep in box.options:
+            box.set_value(rep)
+            on_round_select(which, rep)
+
+    hole_in.on("input-value", lambda e: on_typed_round("hole", hole_in, e.args))
+    shaft_in.on("input-value", lambda e: on_typed_round("shaft", shaft_in, e.args))
+
     def on_click(e: Any) -> None:
         if state.cad is None:
             return
         hit = next((h for h in e.hits if h.object_name in view["objects"]), None)
         if hit is None:
             return
-        state.pick(hit.object_name)
-        redraw()
+        try_pick(hit.object_name)
 
     def swap() -> None:
         state.face_from, state.face_to = state.face_to, state.face_from
@@ -284,6 +384,8 @@ def page() -> None:
         element.on_value_change(lambda _e: on_requirement())
 
     def short_source(row: Any) -> str:
+        if row.id.startswith("float "):
+            return row.source.replace(", uniform (A39)", "")
         if row.kind == "table":
             return (
                 row.source.split(" (")[0].split(":")[0]
@@ -302,7 +404,7 @@ def page() -> None:
         ui.notify(f"Saved {target}", type="positive")
 
     def colour_faces() -> None:
-        chain_parts = list(state.built.chain.path) if state.built else []
+        chain_parts = list(state.built.chain.path) if state.built and state.mode == "gap" else []
         for key, obj in view["objects"].items():
             part = key.rpartition(":")[0]
             if chain_parts:
@@ -314,21 +416,55 @@ def page() -> None:
             else:
                 colour = view["part_color"][part]
             obj.material(colour)
+        if state.mode == "fit":
+            if state.hole is not None or state.shaft is not None:
+                for obj in view["objects"].values():
+                    obj.material(COLOR_OTHER)  # only the chosen hole and shaft in colour
+            for ref, colour in ((state.hole, COLOR_FROM), (state.shaft, COLOR_TO)):
+                if ref is None:
+                    continue
+                for key in view.get("round_faces", {}).get(f"{ref.part}:{ref.face_index}", []):
+                    if key in view["objects"]:
+                        view["objects"][key].material(colour)
+            return
         for ref, colour in ((state.face_from, COLOR_FROM), (state.face_to, COLOR_TO)):
             if ref is not None and f"{ref.part}:{ref.face_index}" in view["objects"]:
                 view["objects"][f"{ref.part}:{ref.face_index}"].material(colour)
 
     def redraw() -> None:
+        fit = state.mode == "fit"
+        gap_box.set_visibility(not fit)
+        swap_button.set_visibility(not fit)
+        fit_box.set_visibility(fit)
+        lsl_in.props(f"label='{'Smallest clearance' if fit else 'Lower limit'} (mm)'")
+        usl_in.props(f"label='{'Largest clearance' if fit else 'Upper limit'} (mm)'")
         target = "face 1" if state.picking == "from" else "face 2"
-        for box, ref in ((from_in, state.face_from), (to_in, state.face_to)):
+        pairs = ((from_in, state.face_from), (to_in, state.face_to), (hole_in, state.hole),
+                 (shaft_in, state.shaft))  # fmt: skip
+        for box, ref in pairs:
             key = f"{ref.part}:{ref.face_index}" if ref else None
             if box.value != key and (key is None or key in box.options):
                 box.set_value(key)
-        faces_label.content = (
-            f"**Face 1** (blue): {state.face_label(state.face_from)}  \n"
-            f"**Face 2** (orange): {state.face_label(state.face_to)}  \n"
-            f"_next click sets {target}_"
-        )
+        if fit:
+            help_label.text = (
+                "Click the hole and the shaft (or pin) in the 3D view, or pick them from the"
+                " lists. Clearance = hole diameter - shaft diameter; a negative clearance"
+                " is an interference."
+            )
+            faces_label.content = (
+                f"**Hole** (blue): {md(state.face_label(state.hole))}  \n"
+                f"**Shaft** (orange): {md(state.face_label(state.shaft))}"
+            )
+        else:
+            help_label.text = (
+                "Click a face in the 3D view for face 1, then for face 2 — or pick them from"
+                " the lists."
+            )
+            faces_label.content = (
+                f"**Face 1** (blue): {md(state.face_label(state.face_from))}  \n"
+                f"**Face 2** (orange): {md(state.face_label(state.face_to))}  \n"
+                f"_next click sets {target}_"
+            )
         if view["objects"]:
             colour_faces()
         draw_table()
@@ -336,20 +472,32 @@ def page() -> None:
 
     def draw_table() -> None:
         table_box.clear()
+        fit = state.mode == "fit"
         with table_box:
-            ui.label("3. The chain").classes("font-medium")
+            ui.label("3. The fit" if fit else "3. The chain").classes("font-medium")
             if state.error:
                 ui.label(state.error).classes("text-negative text-sm")
                 return
-            if state.built is None:
-                ui.label("Choose two faces to see the chain.").classes("text-sm")
-                return
-            ui.label(
-                " → ".join(state.built.chain.path)
-                + f"   (nominal {state.built.chain.nominal:g} mm)"
-            ).classes("text-sm")
-            for note in state.built.notes:
-                ui.label("ℹ " + note).classes("text-xs text-info")
+            if fit:
+                if state.fit is None:
+                    ui.label("Choose a hole and a shaft to see the fit.").classes("text-sm")
+                    return
+                lim = state.fit.limits
+                ui.label(
+                    f"{state.fit.hole.id} (hole) / {state.fit.shaft.id} (shaft):"
+                    f" {lim.kind} fit, clearance {lim.min_clearance:g} to"
+                    f" {lim.max_clearance:g} mm"
+                ).classes("text-sm")
+            else:
+                if state.built is None:
+                    ui.label("Choose two faces to see the chain.").classes("text-sm")
+                    return
+                ui.label(
+                    " → ".join(state.built.chain.path)
+                    + f"   (nominal {state.built.chain.nominal:g} mm)"
+                ).classes("text-sm")
+                for note in state.built.notes:
+                    ui.label("ℹ " + note).classes("text-xs text-info")
             with ui.grid(columns=7).classes("w-full gap-x-3 gap-y-1 items-center text-sm"):
                 for head in (
                     "Part",
@@ -397,9 +545,10 @@ def page() -> None:
                     else:
                         ui.label(f"{row.upper:+g}")
                         ui.label(f"{row.lower:+g}")
-                    ui.label(f"{row.sensitivity:+g}" if row.kind != "gdt" else "±")
+                    sign = "±" if row.kind == "gdt" else "" if row.sensitivity == 0 else None
+                    ui.label(sign if sign is not None else f"{row.sensitivity:+g}")
                     ui.label(short_source(row)).classes("text-xs").tooltip(row.source)
-            missing = len(state.built.needs_value)
+            missing = state.needs_value
             with ui.row().classes("items-center mt-2"):
                 ui.button("Analyse", on_click=lambda: analyse()).props(
                     "color=primary" + (" disable" if missing else "")
@@ -424,7 +573,7 @@ def page() -> None:
             return
         result_box.set_visibility(True)
         r = state.result
-        v = verdict(r)
+        v = state.verdict()
         with result_box:
             ui.label("4. Result").classes("font-medium")
             ui.label(v.headline).classes(f"text-lg text-{LEVEL_COLOR[v.level]} font-medium")

@@ -110,6 +110,13 @@ Maintainer: "you have full access to whether mark verified for a human needed ta
 | D71 | Project file | `<model>.dtol` (JSON) next to the model: file paths, faces, limits, standard, class, typed values; the model is re-read on open | PROVISIONAL | CAD changes are picked up; nothing derived is stored. |
 | D72 | Windows install | A one-time setup script (`installer/install_detectTOL.bat` -> `install.ps1`): finds or offers Miniforge, creates/updates the conda env, installs detectTOL from the folder, Desktop + Start-menu shortcut. Not a conda `constructor` .exe yet | PROVISIONAL | Transparent (a readable script), per user, no admin rights, re-runnable to update. A single .exe for colleagues without the repo is a later option. |
 | D73 | App lifetime | Quit button; stops by itself 60 s after the last browser tab closed; a second start only opens the browser | DECIDED | Nothing keeps running in the background unnoticed. |
+| D74 | Diameter plan (fit check, pin in hole in a chain; 3D stacks a separate decision) | Steps 1–4 as proposed | APPROVED 2026-11-14 ("Approve, Steps 1–4") | Step 2 started on the maintainer's "Yes, start Step 2" (relayed from the parent session), skipping the hand check in SolidWorks. |
+| D75 | Pin float model | Uniform over the largest clearance (A39) | PROVISIONAL, **needs maintainer decision** | Conservative and simple; alternatives in A39. |
+| D76 | ISO 286 letters | Shafts c–g, k–s and holes C–G from a cited, extracted table, flagged; holes K–ZC refused | PROVISIONAL | Rule 1: traceable source only; the one source at hand is wrong for K–N holes. |
+| D77 | Where a fit code is read in SolidWorks | DimXpert first, then the display dimension; limits always from the table | DECIDED | Fits set through the API exist only on the display (phase-dia-1). |
+| D78 | Position datums / MMC not in DimXpert's data | Read from the frame's text, with a note in the report | PROVISIONAL | Better than ignoring a tolerance the drawing shows; the note asks the engineer to check. |
+| D79 | Missing diameter tolerance | Same as a missing dimension: user value, general class, or placeholder; a `MissingDimension` with the same face twice and the diameter as nominal | DECIDED | One mechanism for the app's table. |
+| D80 | App: longest wait for reading a model | 180 s, then a message (look for a SolidWorks window, or close SolidWorks) | PROVISIONAL | One unexplained hang in Step 3; a normal read takes 10–40 s. |
 
 ## Still open (not needed until later phases)
 

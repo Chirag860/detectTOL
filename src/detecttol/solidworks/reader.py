@@ -15,12 +15,23 @@ from __future__ import annotations
 
 import contextlib
 import math
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from detecttol.solidworks.model import SwAssemblyData, SwDimension, SwFace, SwFlatness, Vec3
+from detecttol.solidworks.model import (
+    SwAssemblyData,
+    SwCylinder,
+    SwDatum,
+    SwDiameter,
+    SwDimension,
+    SwFace,
+    SwFlatness,
+    SwPosition,
+    Vec3,
+)
 
 M_TO_MM = 1000.0
 UM_TO_MM = 0.001
@@ -33,8 +44,25 @@ OPEN_SILENT_READONLY = 1 | 2
 SAVEAS_SILENT_COPY = 1 | 2
 PREF_STEP_AP = 75
 ANNOT_DISTANCE_BETWEEN, ANNOT_WIDTH, ANNOT_FLATNESS = 101, 112, 215
+ANNOT_DIAMETER, ANNOT_POSITION, ANNOT_DATUM = 109, 201, 150
+DX_FEATURE_CYLINDER, DX_FEATURE_HOLE = 2, 7
 DX_TOL_ISO_FITS = (3, 4)
 TOL_NONE, TOL_BILAT, TOL_SYMMETRIC = 0, 2, 4
+#: swTolType_e values of a display dimension that carry a fit (FIT, FITWITHTOL, FITTOLONLY).
+DISPLAY_FIT_TYPES = (7, 8, 9)
+#: swDimXpertMaterialConditionModifier_e
+DX_LMC, DX_MMC, DX_NO_MODIFIER, DX_RFS = 1, 2, 3, 4
+#: SolidWorks text tags such as <MOD-MMC> or <MOD-DIAM>
+_TAG = re.compile(r"<[^>]*>")
+
+
+@dataclass
+class _PartRead:
+    dimensions: list[SwDimension]
+    flatness: list[SwFlatness]
+    diameters: list[SwDiameter]
+    datums: list[SwDatum]
+    positions: list[SwPosition]
 
 
 class SolidWorksError(RuntimeError):
@@ -162,6 +190,172 @@ class _Reader:
             area=area_m2 * M_TO_MM * M_TO_MM,
         )
 
+    def cylinder(self, raw_face: Any, part: str, transform: Sequence[float]) -> SwCylinder | None:
+        """A cylindrical face (axis, radius, centroid) in assembly coordinates, else None."""
+        f = self.com.typed(raw_face, "IFace2")
+        surface = self.com.typed(f.GetSurface(), "ISurface")
+        if not surface.IsCylinder():
+            return None
+        params = [float(v) for v in surface.CylinderParams]  # origin, axis, radius [m]
+        axis = _rotate(transform, params[3:6])
+        length = math.sqrt(sum(c * c for c in axis))
+        point = _apply(transform, params[0:3])
+        tri = f.GetTessTriangles(True)
+        if not tri:
+            raise SolidWorksError(f"no tessellation for a face of '{part}'")
+        centroid_m, _area = tess_centroid([float(v) for v in tri])
+        centroid = _apply(transform, centroid_m)
+        return SwCylinder(
+            part=part,
+            axis_point=(point[0] * M_TO_MM, point[1] * M_TO_MM, point[2] * M_TO_MM),
+            axis=(axis[0] / length, axis[1] / length, axis[2] / length),
+            radius=params[6] * M_TO_MM,
+            centroid=(centroid[0] * M_TO_MM, centroid[1] * M_TO_MM, centroid[2] * M_TO_MM),
+        )
+
+    def _feature_cylinders(self, feature: Any, part: str, t: Sequence[float]) -> list[SwCylinder]:
+        if feature is None:
+            return []
+        out = []
+        for raw in self.com.typed(feature, "IDimXpertFeature").GetFaces() or ():
+            c = self.cylinder(raw, part, t)
+            if c is not None:
+                out.append(c)
+        return out
+
+    def _internal(self, feature: Any) -> bool | None:
+        """Hole or boss, as DimXpert's feature says; None if it does not say."""
+        if feature is None:
+            return None
+        kind = int(self.com.typed(feature, "IDimXpertFeature").Type)
+        if kind == DX_FEATURE_HOLE:
+            return True
+        if kind == DX_FEATURE_CYLINDER:
+            return bool(self.com.typed(feature, "IDimXpertCylinderFeature").Inner)
+        return None
+
+    def _fit_code(
+        self, ann: Any, tol: Any, internal: bool | None
+    ) -> tuple[str | None, str | None, bool]:
+        """Fit code from DimXpert (only when its tolerance type is a fit), else from the
+        annotation's display dimension.
+
+        Returns ``(code, "dimxpert" | "display", display_is_fit)``; ``code`` is None
+        when there is none, or when the display shows a hole and a shaft class and the
+        feature's kind is unknown (then ``display_is_fit`` is True).
+        """
+        code = str(tol.LimitsAndFitsCode or "").strip()
+        if code and int(tol.DimensionType) in DX_TOL_ISO_FITS:
+            return code, "dimxpert", False
+        try:
+            display = self.com.typed(
+                self.com.typed(ann.GetDisplayEntity(), "IAnnotation").GetSpecificAnnotation(),
+                "IDisplayDimension",
+            )
+            dim_tol = self.com.typed(
+                self.com.typed(display.GetDimension2(0), "IDimension").Tolerance,
+                "IDimensionTolerance",
+            )
+            if int(dim_tol.Type) not in DISPLAY_FIT_TYPES:
+                return None, None, False
+            hole = str(dim_tol.GetHoleFitValue() or "").strip()
+            shaft = str(dim_tol.GetShaftFitValue() or "").strip()
+        except Exception:  # pragma: no cover - no display dimension
+            return None, None, False
+        if hole and shaft:
+            if internal is None:
+                return None, None, True
+            return (hole if internal else shaft), "display", True
+        if hole or shaft:
+            return hole or shaft, "display", True
+        return None, None, True
+
+    def _tolerance(
+        self, ann: Any, tol: Any, internal: bool | None, label: str
+    ) -> tuple[float | None, float | None, str | None, str | None]:
+        """``(upper, lower, fit_code, fit_from)`` of a DimXpert size or distance.
+
+        A fit code wins (its limits come from the table later). A display that says
+        "fit" without a usable code, or plus/minus values SolidWorks cannot give,
+        leave the tolerance missing (with a note), never a silent 0/0.
+        """
+        code, fit_from, display_is_fit = self._fit_code(ann, tol, internal)
+        if code:
+            return None, None, code, fit_from
+        if display_is_fit:
+            self.notes.append(
+                f"{label}: shown as a fit, but which class applies is unclear; tolerance"
+                " treated as missing"
+            )
+            return None, None, None, None
+        ok, plus, minus = tol.GetPlusAndMinusTolerance(0.0, 0.0)
+        if not ok:
+            self.notes.append(f"{label}: SolidWorks gives no plus/minus tolerance; missing")
+            return None, None, None, None
+        return float(plus), float(minus), None, None
+
+    def _frame(self, ann: Any) -> tuple[list[str], list[str]]:
+        """``(values, symbols)`` of the first frame of a geometric tolerance's display."""
+        try:
+            gtol = self.com.typed(
+                self.com.typed(ann.GetDisplayEntity(), "IAnnotation").GetSpecificAnnotation(),
+                "IGtol",
+            )
+            values = [str(v or "") for v in gtol.GetFrameValues(1)]  # tol1, tol2, datums
+            symbols = [str(v or "") for v in gtol.GetFrameSymbols3(1)]
+        except Exception:  # pragma: no cover - no display
+            return [], []
+        return values, symbols
+
+    def _position(self, raw: Any, ann: Any, part: str, t: Sequence[float]) -> SwPosition | None:
+        name = str(ann.Name)
+        tol = self.com.typed(raw, "IDimXpertTolerance")
+        value = float(tol.Tolerance) * UM_TO_MM
+        modifier = int(self.com.typed(raw, "IDimXpertPositionTolerance").Modifier)
+        labels: list[str] = []
+        for getter in (tol.GetPrimaryDatums, tol.GetSecondaryDatums, tol.GetTertiaryDatums):
+            found = getter() or ()
+            if found:
+                labels.append(str(self.com.typed(found[0], "IDimXpertDatum").Identifier))
+        values, symbols = self._frame(ann)
+        found_in = "dimxpert"
+        if modifier == DX_MMC:
+            condition = "MMC"
+        elif modifier == DX_LMC:
+            condition = "LMC"
+        elif modifier == DX_RFS:
+            condition = "RFS"
+        else:
+            # only the feature tolerance's own text: a modifier on a datum reference
+            # (e.g. "B<MOD-MMC>") is a datum feature modifier, not the tolerance's
+            text = " ".join(values[:1] + symbols[:3])
+            condition = "MMC" if "MOD-MMC" in text else "LMC" if "MOD-LMC" in text else "RFS"
+            if condition != "RFS":
+                found_in = "frame"
+        if not labels:
+            cells = [_TAG.sub("", v).strip() for v in values[2:5]]
+            labels = [c for c in cells if c]
+            if labels:
+                found_in = "frame"
+                if any(re.search(r"MOD-(MMC|LMC)", v) for v in values[2:5]):
+                    self.notes.append(
+                        f"{part}: {name}: a datum reference carries a material modifier"
+                        " (datum shift); not modelled"
+                    )
+        faces = self._feature_cylinders(ann.Feature, part, t)
+        if not faces:
+            self.notes.append(f"{part}: DimXpert {name} is not on a cylindrical face; not used")
+            return None
+        return SwPosition(
+            name=name,
+            part=part,
+            value=value,
+            material_condition=condition,
+            datums=tuple(labels),
+            found_in=found_in,
+            faces=tuple(faces),
+        )
+
     def _feature_faces(self, feature: Any, part: str, t: Sequence[float]) -> list[SwFace]:
         if feature is None:
             return []
@@ -170,18 +364,16 @@ class _Reader:
 
     # -- DimXpert ---------------------------------------------------------------------------
 
-    def dimxpert(
-        self, model: Any, part: str, t: Sequence[float], document: str
-    ) -> tuple[list[SwDimension], list[SwFlatness]]:
+    def dimxpert(self, model: Any, part: str, t: Sequence[float], document: str) -> _PartRead:
+        out = _PartRead([], [], [], [], [])
+        dims, flats = out.dimensions, out.flatness
         config = model.ConfigurationManager.ActiveConfiguration.Name
         manager = model.Extension.DimXpertManager(config, False)  # False: never create a schema
         if manager is None:
-            return [], []
+            return out
         part_x = self.com.typed(
             self.com.typed(manager, "IDimXpertManager").DimXpertPart, "IDimXpertPart"
         )
-        dims: list[SwDimension] = []
-        flats: list[SwFlatness] = []
         for raw in part_x.GetAnnotations() or ():
             ann = self.com.typed(raw, "IDimXpertAnnotation")
             kind, name = int(ann.Type), str(ann.Name)
@@ -199,12 +391,7 @@ class _Reader:
                         f"{part}: DimXpert {name} has {len(faces)} faces, not 2; not used"
                     )
                     continue
-                fit = str(tol.LimitsAndFitsCode or "").strip() or None
-                if int(tol.DimensionType) in DX_TOL_ISO_FITS and fit:
-                    upper = lower = None
-                else:
-                    _ok, plus, minus = tol.GetPlusAndMinusTolerance(0.0, 0.0)
-                    upper, lower, fit = float(plus), float(minus), None
+                upper, lower, fit, _from = self._tolerance(ann, tol, None, f"{part}: {name}")
                 dims.append(
                     SwDimension(
                         name=name,
@@ -229,9 +416,45 @@ class _Reader:
                     )
                     continue
                 flats.append(SwFlatness(name=name, part=part, value=value, face=faces[0]))
+            elif kind == ANNOT_DIAMETER:
+                tol = self.com.typed(raw, "IDimXpertDimensionTolerance")
+                internal = self._internal(ann.Feature)
+                cylinders = self._feature_cylinders(ann.Feature, part, t)
+                if not cylinders:
+                    self.notes.append(f"{part}: DimXpert {name} has no cylindrical face; not used")
+                    continue
+                upper, lower, fit, fit_from = self._tolerance(ann, tol, internal, f"{part}: {name}")
+                out.diameters.append(
+                    SwDiameter(
+                        name=name,
+                        part=part,
+                        nominal=float(tol.GetNominalValue()),
+                        upper=upper,
+                        lower=lower,
+                        fit_code=fit,
+                        fit_from=fit_from,
+                        internal=internal,
+                        faces=tuple(cylinders),
+                        document=document,
+                    )
+                )
+            elif kind == ANNOT_DATUM:
+                faces = self._feature_faces(ann.Feature, part, t)
+                label = str(self.com.typed(raw, "IDimXpertDatum").Identifier)
+                if len(faces) != 1:
+                    self.notes.append(
+                        f"{part}: DimXpert datum {label} is on {len(faces)} faces; only planar"
+                        " datums on one face are used"
+                    )
+                    continue
+                out.datums.append(SwDatum(name=name, part=part, label=label, face=faces[0]))
+            elif kind == ANNOT_POSITION:
+                position = self._position(raw, ann, part, t)
+                if position is not None:
+                    out.positions.append(position)
             else:
                 self.notes.append(f"{part}: DimXpert {name} (type {kind}) is not used yet")
-        return dims, flats
+        return out
 
     # -- drawings ---------------------------------------------------------------------------
 
@@ -317,6 +540,9 @@ class _Reader:
         asm = self.com.typed(doc, "IAssemblyDoc")
         dims: list[SwDimension] = []
         flats: list[SwFlatness] = []
+        diameters: list[SwDiameter] = []
+        datums: list[SwDatum] = []
+        positions: list[SwPosition] = []
         transforms: dict[str, Sequence[float]] = {}
         parts: list[str] = []
         for raw in asm.GetComponents(False) or ():
@@ -341,9 +567,12 @@ class _Reader:
                 raise SolidWorksError(f"component {comp.Name2} is scaled; not supported")
             transforms[part] = t
             parts.append(part)
-            d, f = self.dimxpert(model, part, t, Path(str(model.GetPathName())).name)
-            dims += d
-            flats += f
+            got = self.dimxpert(model, part, t, Path(str(model.GetPathName())).name)
+            dims += got.dimensions
+            flats += got.flatness
+            diameters += got.diameters
+            datums += got.datums
+            positions += got.positions
         for drawing in drawings:
             dims += self.drawing(Path(drawing), transforms)
         self._export_step(doc, step_path)
@@ -354,6 +583,9 @@ class _Reader:
             flatness=tuple(flats),
             notes=tuple(self.notes),
             solidworks_revision=str(self.sw.RevisionNumber()),
+            diameters=tuple(diameters),
+            datums=tuple(datums),
+            positions=tuple(positions),
         )
 
     def _export_step(self, doc: Any, step_path: Path) -> None:

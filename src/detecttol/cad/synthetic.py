@@ -43,6 +43,8 @@ class BoxPart:
         cylinder_radius: if given, the part is instead a cylinder of this
             radius and height ``size[2]`` standing on z = 0 with its axis at
             ``(radius, radius)`` in the part frame (``size[0]``/``size[1]`` unused).
+        holes: round through holes along z, each ``(x, y, diameter)`` [mm, part
+            frame].
     """
 
     name: str
@@ -51,6 +53,7 @@ class BoxPart:
     rotation_z_deg: float = 0.0
     slot: tuple[float, float, float, float] | None = None
     cylinder_radius: float | None = None
+    holes: tuple[tuple[float, float, float], ...] = ()
 
 
 def write_box_assembly(
@@ -88,6 +91,13 @@ def write_box_assembly(
                 raise ValueError(f"part '{part.name}': slot must lie inside the box")
             cutter = BRepPrimAPI_MakeBox(gp_Pnt(x0, -1.0, z0), gp_Pnt(x1, dy + 1.0, z1)).Shape()
             box = BRepAlgoAPI_Cut(box, cutter).Shape()
+        for x, y, diameter in part.holes:
+            if diameter <= 0:
+                raise ValueError(f"part '{part.name}': hole diameter must be > 0")
+            drill = BRepPrimAPI_MakeCylinder(
+                gp_Ax2(gp_Pnt(x, y, -1.0), gp_Dir(0.0, 0.0, 1.0)), diameter / 2.0, dz + 2.0
+            ).Shape()
+            box = BRepAlgoAPI_Cut(box, drill).Shape()
         label = shape_tool.AddShape(box, False)
         TDataStd_Name.Set(label, part.name)
         rotation = gp_Trsf()

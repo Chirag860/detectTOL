@@ -80,13 +80,96 @@ class SwFlatness:
 
 
 @dataclass(frozen=True)
+class SwCylinder:
+    """A cylindrical face of one part, in assembly coordinates.
+
+    Attributes:
+        part: part name.
+        axis_point / axis: the axis line [mm]; ``axis`` is a unit vector.
+        radius: [mm].
+        centroid: area centroid [mm] (on the axis for a full cylinder); used to
+            tell apart two equal coaxial cylinders of one part.
+    """
+
+    part: str
+    axis_point: Vec3
+    axis: Vec3
+    radius: float
+    centroid: Vec3
+
+
+@dataclass(frozen=True)
+class SwDiameter:
+    """A toleranced diameter (DimXpert) on a round feature.
+
+    Attributes:
+        name: SolidWorks name, e.g. ``Diameter1@Boss1(20)``.
+        part: part name.
+        nominal: diameter [mm].
+        upper / lower: signed deviations [mm], ``None`` when a fit code gives them.
+        fit_code: ISO 286 class, e.g. ``H7`` or ``g6``.
+        fit_from: where the fit code was found: ``dimxpert`` or ``display``
+            (the annotation's display dimension; DimXpert's own field can stay
+            empty, docs/reports/phase-dia-1.md).
+        internal: hole (``True``), boss/pin (``False``), as DimXpert says.
+        faces: the cylindrical face(s) of the feature.
+        document: file it was read from.
+    """
+
+    name: str
+    part: str
+    nominal: float
+    upper: float | None
+    lower: float | None
+    fit_code: str | None
+    fit_from: str | None
+    internal: bool | None
+    faces: tuple[SwCylinder, ...]
+    document: str
+
+
+@dataclass(frozen=True)
+class SwDatum:
+    """A DimXpert datum on a planar face."""
+
+    name: str
+    part: str
+    label: str
+    face: SwFace
+
+
+@dataclass(frozen=True)
+class SwPosition:
+    """A DimXpert position tolerance on a round feature.
+
+    Attributes:
+        name / part: as above.
+        value: diameter of the tolerance zone [mm].
+        material_condition: ``RFS``, ``MMC`` or ``LMC``.
+        datums: datum letters, primary first.
+        found_in: ``dimxpert`` when material condition and datums came from
+            DimXpert's own data, ``frame`` when (some of) them were read from the
+            text of the tolerance frame instead.
+        faces: the cylindrical face(s) of the feature.
+    """
+
+    name: str
+    part: str
+    value: float
+    material_condition: str
+    datums: tuple[str, ...]
+    found_in: str
+    faces: tuple[SwCylinder, ...]
+
+
+@dataclass(frozen=True)
 class SwAssemblyData:
     """Everything read from one assembly (and optional drawings).
 
     Attributes:
         assembly: path of the .SLDASM.
         parts: part names, one per component.
-        dimensions / flatness: what was found.
+        dimensions / flatness / diameters / datums / positions: what was found.
         notes: what was seen but not used, and why (never dropped silently).
         solidworks_revision: e.g. ``34.4.1``.
     """
@@ -97,3 +180,6 @@ class SwAssemblyData:
     flatness: tuple[SwFlatness, ...] = ()
     notes: tuple[str, ...] = field(default_factory=tuple)
     solidworks_revision: str = ""
+    diameters: tuple[SwDiameter, ...] = ()
+    datums: tuple[SwDatum, ...] = ()
+    positions: tuple[SwPosition, ...] = ()

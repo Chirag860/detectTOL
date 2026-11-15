@@ -97,6 +97,24 @@ class StepReadError(Exception):
 
 
 @dataclass(frozen=True)
+class CylinderInfo:
+    """Axis and radius of a cylindrical face, in assembly coordinates.
+
+    Attributes:
+        axis_point: a point on the axis [mm].
+        axis: unit direction of the axis (its sense carries no meaning).
+        radius: [mm].
+        internal: ``True`` for a hole (the material is outside the cylinder),
+            ``False`` for a pin or boss.
+    """
+
+    axis_point: Vec3
+    axis: Vec3
+    radius: float
+    internal: bool
+
+
+@dataclass(frozen=True)
 class FaceInfo:
     """One face of a part instance, in assembly (global) coordinates.
 
@@ -107,6 +125,9 @@ class FaceInfo:
         centroid: area centroid [mm].
         normal: outward unit normal for a plane, else ``None``.
         bbox_min / bbox_max: corners of the face's axis-aligned bounding box [mm].
+        cylinder: axis and radius for a cylindrical face, else ``None``. STEP
+            files usually split a full cylinder into two half faces; both
+            carry the same axis and radius.
     """
 
     index: int
@@ -116,6 +137,7 @@ class FaceInfo:
     normal: Vec3 | None
     bbox_min: Vec3 = (0.0, 0.0, 0.0)
     bbox_max: Vec3 = (0.0, 0.0, 0.0)
+    cylinder: CylinderInfo | None = None
 
     @property
     def is_planar(self) -> bool:
@@ -259,6 +281,20 @@ def _face_info(index: int, face: Any) -> FaceInfo:
         d = adaptor.Plane().Axis().Direction()
         sign = -1.0 if face.Orientation() == TopAbs_REVERSED else 1.0
         normal = (sign * d.X(), sign * d.Y(), sign * d.Z())
+    cylinder: CylinderInfo | None = None
+    if surface == "cylinder":
+        cyl = adaptor.Cylinder()
+        position = cyl.Position()
+        loc, axis = position.Location(), position.Direction()
+        # The surface's own normal points away from the axis for a right-handed
+        # frame; a reversed face turns the material side around.
+        outward = position.Direct() != (face.Orientation() == TopAbs_REVERSED)
+        cylinder = CylinderInfo(
+            axis_point=(loc.X(), loc.Y(), loc.Z()),
+            axis=(axis.X(), axis.Y(), axis.Z()),
+            radius=float(cyl.Radius()),
+            internal=not outward,
+        )
     box = Bnd_Box()
     box.SetGap(0.0)
     brepbndlib.AddOptimal(face, box, False, False)
@@ -271,6 +307,7 @@ def _face_info(index: int, face: Any) -> FaceInfo:
         normal=normal,
         bbox_min=(x0, y0, z0),
         bbox_max=(x1, y1, z1),
+        cylinder=cylinder,
     )
 
 
